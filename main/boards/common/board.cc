@@ -173,6 +173,13 @@ std::string Board::GetSystemInfoJson() {
     json += R"("board":)" + GetBoardJson();
 
     // Close the JSON object
-    json += R"(})";
-    return json;
+    json += R"(})";    return json;
+}
+
+void Board::StopNetworkReconnect() {
+    // 基类空实现，子类可以重写
+}
+
+void Board::ResumeNetworkReconnect() {
+    // 基类空实现，子类可以重写
 }

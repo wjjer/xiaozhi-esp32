@@ -7,11 +7,12 @@
 
 static const char *TAG = "DualNetworkBoard";
 
-DualNetworkBoard::DualNetworkBoard(gpio_num_t ml307_tx_pin, gpio_num_t ml307_rx_pin, gpio_num_t ml307_dtr_pin, int32_t default_net_type) 
+DualNetworkBoard::DualNetworkBoard(gpio_num_t ml307_tx_pin, gpio_num_t ml307_rx_pin, gpio_num_t ml307_dtr_pin, int32_t default_net_type, bool use_ml307c) 
     : Board(), 
       ml307_tx_pin_(ml307_tx_pin), 
       ml307_rx_pin_(ml307_rx_pin), 
-      ml307_dtr_pin_(ml307_dtr_pin) {
+      ml307_dtr_pin_(ml307_dtr_pin),
+      use_ml307c_(use_ml307c) {
     
     // 从Settings加载网络类型
     network_type_ = LoadNetworkTypeFromSettings(default_net_type);
@@ -34,8 +35,13 @@ void DualNetworkBoard::SaveNetworkTypeToSettings(NetworkType type) {
 
 void DualNetworkBoard::InitializeCurrentBoard() {
     if (network_type_ == NetworkType::ML307) {
-        ESP_LOGI(TAG, "Initialize ML307 board");
-        current_board_ = std::make_unique<Ml307Board>(ml307_tx_pin_, ml307_rx_pin_, ml307_dtr_pin_);
+        if (use_ml307c_) {
+            ESP_LOGI(TAG, "Initialize ML307C board");
+            current_board_ = std::make_unique<Ml307CBoard>(ml307_tx_pin_, ml307_rx_pin_, ml307_dtr_pin_);
+        } else {
+            ESP_LOGI(TAG, "Initialize ML307 board");
+            current_board_ = std::make_unique<Ml307Board>(ml307_tx_pin_, ml307_rx_pin_, ml307_dtr_pin_);
+        }
     } else {
         ESP_LOGI(TAG, "Initialize WiFi board");
         current_board_ = std::make_unique<WifiBoard>();
@@ -44,6 +50,7 @@ void DualNetworkBoard::InitializeCurrentBoard() {
 
 void DualNetworkBoard::SwitchNetworkType() {
     auto display = GetDisplay();
+    ESP_LOGI(TAG, "SwitchNetworkType: %d", network_type_);
     if (network_type_ == NetworkType::WIFI) {    
         SaveNetworkTypeToSettings(NetworkType::ML307);
         display->ShowNotification(Lang::Strings::SWITCH_TO_4G_NETWORK);
@@ -51,11 +58,12 @@ void DualNetworkBoard::SwitchNetworkType() {
         SaveNetworkTypeToSettings(NetworkType::WIFI);
         display->ShowNotification(Lang::Strings::SWITCH_TO_WIFI_NETWORK);
     }
+    Application::GetInstance().PlaySound(Lang::Sounds::OGG_POPUP);
     vTaskDelay(pdMS_TO_TICKS(1000));
     auto& app = Application::GetInstance();
+    ESP_LOGI(TAG, "SwitchNetworkType: Rebooting...");
     app.Reboot();
 }
-
  
 std::string DualNetworkBoard::GetBoardType() {
     return current_board_->GetBoardType();
@@ -95,4 +103,39 @@ std::string DualNetworkBoard::GetBoardJson() {
 
 std::string DualNetworkBoard::GetDeviceStatusJson() {
     return current_board_->GetDeviceStatusJson();
+}
+
+void DualNetworkBoard::StopWifiConnectTimer() {
+    // 检查当前板卡是否为 WifiBoard
+    WifiBoard* wifi_board = dynamic_cast<WifiBoard*>(current_board_.get());
+    if (wifi_board) {
+        wifi_board->StopWifiConnectTimer();
+    }
+}
+
+void DualNetworkBoard::StopNetworkReconnect() {
+    // 检查当前板卡类型并调用相应的停止重连方法
+    WifiBoard* wifi_board = dynamic_cast<WifiBoard*>(current_board_.get());
+    if (wifi_board) {
+        wifi_board->StopWifiConnectTimer();
+        wifi_board->StopWifiReconnect();
+    }
+    
+    Ml307Board* ml307_board = dynamic_cast<Ml307Board*>(current_board_.get());
+    if (ml307_board) {
+        ml307_board->StopNetworkReconnect();
+    }
+}
+
+void DualNetworkBoard::ResumeNetworkReconnect() {
+    // 检查当前板卡类型并调用相应的恢复重连方法
+    WifiBoard* wifi_board = dynamic_cast<WifiBoard*>(current_board_.get());
+    if (wifi_board) {
+        wifi_board->ResumeWifiReconnect();
+    }
+    
+    Ml307Board* ml307_board = dynamic_cast<Ml307Board*>(current_board_.get());
+    if (ml307_board) {
+        ml307_board->ResumeNetworkReconnect();
+    }
 }

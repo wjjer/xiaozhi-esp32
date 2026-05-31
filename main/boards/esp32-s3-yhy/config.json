@@ -1,0 +1,21 @@
+{
+    "target": "esp32s3",
+    "builds": [
+        {
+            "name": "esp32-s3-yhy",
+            "sdkconfig_append": [
+                "CONFIG_SPIRAM=y",
+                "CONFIG_SPIRAM_MODE_OCT=y",
+                "CONFIG_SPIRAM_SPEED_80M=y",
+                "CONFIG_SPIRAM_USE_MALLOC=y",
+                "CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY=y",
+                "CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y",
+                "CONFIG_USE_DEVICE_AEC=y",
+                "CONFIG_USE_AUDIO_PROCESSOR=y",
+                "CONFIG_USE_AFE_WAKE_WORD=y",
+                "CONFIG_SEND_WAKE_WORD_DATA=n",
+                "CONFIG_ML307C_DUAL_SIM_PRIMARY_SLOT=1"
+            ]
+        }
+    ]
+}

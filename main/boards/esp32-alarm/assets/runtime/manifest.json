@@ -1,0 +1,118 @@
+{
+  "board": "esp32-alarm",
+  "screen": {
+    "width": 320,
+    "height": 240,
+    "status_height": 24,
+    "content_height": 216
+  },
+  "format": "png",
+  "policy": {
+    "runtime_dir": "main/boards/esp32-alarm/assets/runtime",
+    "source_dir": "main/boards/esp32-alarm/图片",
+    "generated_dir": "main/boards/esp32-alarm/generated_assets",
+    "exclude_from_runtime": [
+      "ui_effect_*.png"
+    ]
+  },
+  "assets": {
+    "launch": [
+      "launch_logo.png",
+      "loading_spinner_1.png",
+      "loading_spinner_2.png",
+      "loading_spinner_3.png",
+      "loading_spinner_4.png",
+      "loading_spinner_5.png",
+      "loading_spinner_6.png",
+      "loading_spinner_7.png",
+      "loading_spinner_8.png"
+    ],
+    "status_bar": [
+      "status_wifi.png",
+      "status_4g.png",
+      "status_battery.png",
+      "status_weather.png",
+      "status_volume.png",
+      "status_charging.png",
+      "status_alarm.png",
+      "status_mic.png",
+      "status_network.png",
+      "status_ai.png",
+      "status_bluetooth.png",
+      "status_sleep.png",
+      "status_night.png",
+      "status_day.png",
+      "status_focus.png"
+    ],
+    "home": [
+      "home_bg.png",
+      "card_bg.png",
+      "clock_bg.png",
+      "icon_ai.png",
+      "icon_study.png",
+      "icon_alarm.png",
+      "icon_tools.png"
+    ],
+    "ai": [
+      "ai_character_idle.png",
+      "ai_character_listening.png",
+      "ai_character_thinking.png",
+      "ai_character_speaking.png",
+      "mic_button_idle.png",
+      "mic_button_listening.png",
+      "mic_button_thinking.png",
+      "mic_button_speaking.png",
+      "speech_bubble.png",
+      "quick_question_bg.png"
+    ],
+    "weather": [
+      "weather_sun.png",
+      "weather_cloud.png",
+      "weather_rain.png",
+      "weather_snow.png",
+      "weather_thunder.png",
+      "weather_fog.png",
+      "weather_wind.png",
+      "weather_night.png"
+    ],
+    "alarm_tools": [
+      "alarm_bg.png",
+      "clock_bg.png",
+      "stopwatch_bg.png",
+      "button_start_stopwatch.png",
+      "button_pause_stopwatch.png",
+      "button_lap.png",
+      "button_reset_stopwatch.png",
+      "lap_item_bg.png"
+    ],
+    "focus": [
+      "focus_progress_bg.png",
+      "focus_progress_fill.png",
+      "focus_stats_bg.png",
+      "focus_tomato.png",
+      "button_focus_start.png",
+      "button_focus_pause.png",
+      "button_focus_skip.png",
+      "button_focus_settings.png"
+    ],
+    "night_light": [
+      "night_light_on.png",
+      "night_light_off.png",
+      "slider_bg.png",
+      "slider_thumb.png",
+      "temperature_slider_bg.png",
+      "button_auto_mode.png",
+      "button_timer.png",
+      "button_scene_mode.png",
+      "button_toggle_light.png"
+    ],
+    "study": [
+      "placeholder_icon_dictionary.png",
+      "placeholder_icon_vocabulary.png",
+      "placeholder_icon_word_study.png",
+      "placeholder_icon_k12.png",
+      "placeholder_msg_bg.png",
+      "placeholder_face.png"
+    ]
+  }
+}

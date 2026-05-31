@@ -1,6 +1,8 @@
 # Define source files
 set(SOURCES "audio/audio_codec.cc"
             "audio/audio_service.cc"
+            "audio/fft.cc"
+            "audio/audio_analyzer.cc"
             "audio/demuxer/ogg_demuxer.cc"
             "audio/codecs/no_audio_codec.cc"
             "audio/codecs/box_audio_codec.cc"
@@ -16,6 +18,7 @@ set(SOURCES "audio/audio_codec.cc"
             "display/display.cc"
             "display/lcd_display.cc"
             "display/oled_display.cc"
+            "display/tm1629a_display.cc"
             "display/lvgl_display/lvgl_display.cc"
             "display/emote_display.cc"
             "display/lvgl_display/emoji_collection.cc"
@@ -34,6 +37,8 @@ set(SOURCES "audio/audio_codec.cc"
             "application.cc"
             "ota.cc"
             "settings.cc"
+            "alarm_manager.cc"
+            "time_tools_manager.cc"
             "device_state_machine.cc"
             "assets.cc"
             "main.cc"
@@ -46,6 +51,8 @@ list(APPEND SOURCES
     "boards/common/board.cc"
     "boards/common/wifi_board.cc"
     "boards/common/ml307_board.cc"
+    "boards/common/ml307c_board.cc"
+    "boards/common/at_command_tester.cc"
     "boards/common/nt26_board.cc"
     "boards/common/dual_network_board.cc"
     "boards/common/adc_battery_monitor.cc"
@@ -103,6 +110,10 @@ elseif(CONFIG_BOARD_TYPE_BREAD_COMPACT_ESP32_LCD)
     set(BOARD_TYPE "bread-compact-esp32-lcd")
     set(BUILTIN_TEXT_FONT font_puhui_basic_14_1)
     set(BUILTIN_ICON_FONT font_awesome_14_1)
+elseif(CONFIG_BOARD_TYPE_BREAD_COMPACT_DUAL_TOUCH)
+    set(BOARD_TYPE "bread-compact-dual-touch")
+    set(BUILTIN_TEXT_FONT font_puhui_16_4)
+    set(BUILTIN_ICON_FONT font_awesome_16_4)
 elseif(CONFIG_BOARD_TYPE_DF_K10)
     set(BOARD_TYPE "df-k10")
     set(BUILTIN_TEXT_FONT font_noto_basic_20_4)
@@ -153,6 +164,31 @@ elseif(CONFIG_BOARD_TYPE_LICHUANG_DEV_S3)
     set(BUILTIN_TEXT_FONT font_noto_basic_20_4)
     set(BUILTIN_ICON_FONT font_awesome_20_4)
     set(DEFAULT_EMOJI_COLLECTION noto-emoji_128)
+elseif(CONFIG_BOARD_TYPE_ESP32_S3_YHY)
+    set(BOARD_TYPE "esp32-s3-yhy")
+    set(BUILTIN_TEXT_FONT font_puhui_basic_14_1)
+    set(BUILTIN_ICON_FONT font_awesome_14_1)
+elseif(CONFIG_BOARD_TYPE_ESP32_ALARM)
+    set(BOARD_TYPE "esp32-alarm")
+    set(BUILTIN_TEXT_FONT font_puhui_basic_20_4)
+    set(BUILTIN_ICON_FONT font_awesome_20_4)
+    set(BUILTIN_LARGE_FONT font_puhui_basic_30_4)
+    set(DEFAULT_ASSETS_EXTRA_FILES "${CMAKE_CURRENT_SOURCE_DIR}/boards/esp32-alarm/assets/runtime")
+    file(GLOB_RECURSE ESP32_ALARM_UI_GENERATED_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/boards/esp32-alarm/ui_generated/*.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/boards/esp32-alarm/ui_generated/*.cpp
+    )
+    list(APPEND SOURCES
+        "boards/esp32-alarm/ui_designer/alarm/custom/custom.c"
+        "ui/ui_system.cc"
+        "ui/ui_router.cc"
+        ${ESP32_ALARM_UI_GENERATED_SOURCES}
+    )
+    list(APPEND INCLUDE_DIRS "ui")
+    list(APPEND INCLUDE_DIRS
+        ${CMAKE_CURRENT_SOURCE_DIR}/boards/esp32-alarm/ui_designer/alarm/custom
+        ${CMAKE_CURRENT_SOURCE_DIR}/boards/esp32-alarm/ui_generated
+    )
 elseif(CONFIG_BOARD_TYPE_LICHUANG_DEV_C3)
     set(BOARD_TYPE "lichuang-c3-dev")
     set(BUILTIN_TEXT_FONT font_puhui_basic_20_4)
@@ -273,12 +309,6 @@ elseif(CONFIG_BOARD_TYPE_WAVESHARE_ESP32_TOUCH_LCD_3_5)
     set(BUILTIN_TEXT_FONT font_puhui_basic_20_4)
     set(BUILTIN_ICON_FONT font_awesome_20_4)
     set(DEFAULT_EMOJI_COLLECTION twemoji_64)
-elseif(CONFIG_BOARD_TYPE_WAVESHARE_ESP32_S3_CAM_XXXX)
-    set(MANUFACTURER "waveshare")
-    set(BOARD_TYPE "esp32-s3-cam")
-    set(BUILTIN_TEXT_FONT font_puhui_basic_16_4)
-    set(BUILTIN_ICON_FONT font_awesome_16_4)
-    set(DEFAULT_EMOJI_COLLECTION twemoji_64)
 elseif(CONFIG_BOARD_TYPE_WAVESHARE_ESP32_S3_AUDIO_BOARD)
     set(MANUFACTURER "waveshare")
     set(BOARD_TYPE "esp32-s3-audio-board")
@@ -306,12 +336,6 @@ elseif(CONFIG_BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_AMOLED_2_06)
 elseif(CONFIG_BOARD_TYPE_WAVESHARE_ESP32_C6_TOUCH_AMOLED_2_06)
     set(MANUFACTURER "waveshare")
     set(BOARD_TYPE "esp32-c6-touch-amoled-2.06")
-    set(BUILTIN_TEXT_FONT font_puhui_basic_30_4)
-    set(BUILTIN_ICON_FONT font_awesome_30_4)
-    set(DEFAULT_EMOJI_COLLECTION twemoji_64)
-elseif(CONFIG_BOARD_TYPE_WAVESHARE_ESP32_C6_TOUCH_AMOLED_2_16)
-    set(MANUFACTURER "waveshare")
-    set(BOARD_TYPE "esp32-c6-touch-amoled-2.16")
     set(BUILTIN_TEXT_FONT font_puhui_basic_30_4)
     set(BUILTIN_ICON_FONT font_awesome_30_4)
     set(DEFAULT_EMOJI_COLLECTION twemoji_64)
@@ -471,12 +495,6 @@ elseif(CONFIG_BOARD_TYPE_WAVESHARE_ESP32_P4_WIFI6_TOUCH_LCD_3_4C)
     set(BUILTIN_TEXT_FONT font_puhui_basic_30_4)
     set(BUILTIN_ICON_FONT font_awesome_30_4)
     set(DEFAULT_EMOJI_COLLECTION twemoji_64)
-elseif(CONFIG_BOARD_TYPE_WAVESHARE_ESP32_P4_WIFI6_TOUCH_LCD_3_5)
-    set(MANUFACTURER "waveshare")
-    set(BOARD_TYPE "esp32-p4-wifi6-touch-lcd-3.5")
-    set(BUILTIN_TEXT_FONT font_puhui_basic_30_4)
-    set(BUILTIN_ICON_FONT font_awesome_30_4)
-    set(DEFAULT_EMOJI_COLLECTION twemoji_64)
 elseif(CONFIG_BOARD_TYPE_WAVESHARE_ESP32_P4_WIFI6_TOUCH_LCD_4C)
     set(MANUFACTURER "waveshare")
     set(BOARD_TYPE "esp32-p4-wifi6-touch-lcd")
@@ -592,11 +610,6 @@ elseif(CONFIG_BOARD_TYPE_ATK_DNESP32S3M_4G)
     set(BUILTIN_TEXT_FONT font_puhui_basic_16_4)
     set(BUILTIN_ICON_FONT font_awesome_16_4)
     set(DEFAULT_EMOJI_COLLECTION twemoji_32)
-elseif(CONFIG_BOARD_TYPE_ATK_DNESP32S3_BOX3)
-    set(BOARD_TYPE "atk-dnesp32s3-box3")
-    set(BUILTIN_TEXT_FONT font_puhui_basic_20_4)
-    set(BUILTIN_ICON_FONT font_awesome_20_4)
-    set(DEFAULT_EMOJI_COLLECTION twemoji_64)
 elseif(CONFIG_BOARD_TYPE_DU_CHATX)
     set(BOARD_TYPE "du-chatx")
     set(BUILTIN_TEXT_FONT font_puhui_basic_16_4)
@@ -769,11 +782,6 @@ elseif(CONFIG_BOARD_TYPE_HU_087)
     set(BOARD_TYPE "hu-087")
     set(BUILTIN_TEXT_FONT font_puhui_basic_14_1)
     set(BUILTIN_ICON_FONT font_awesome_14_1)
-elseif(CONFIG_BOARD_TYPE_Freenove_ESP32S3_DISPLAY_2_8_LCD)
-    set(BOARD_TYPE "freenove-esp32s3-display-2.8-lcd")
-    set(BUILTIN_TEXT_FONT font_puhui_basic_20_4)
-    set(BUILTIN_ICON_FONT font_awesome_20_4)
-    set(DEFAULT_EMOJI_COLLECTION twemoji_64)
 endif()
 
 if(MANUFACTURER)
@@ -941,14 +949,6 @@ if(CONFIG_IDF_TARGET_ESP32S3)
     list(APPEND SOURCES "boards/common/esp32_camera.cc")
 endif()
 
-set(MAIN_PRIV_REQUIRES_EXTRA "")
-if(CONFIG_BOARD_TYPE_ESP_VOCAT)
-    list(APPEND MAIN_PRIV_REQUIRES_EXTRA
-        espressif__touch_slider_sensor
-        espressif__touch_button_sensor
-    )
-endif()
-
 idf_component_register(SRCS ${SOURCES}
                     EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS}
                     INCLUDE_DIRS ${INCLUDE_DIRS}
@@ -971,7 +971,6 @@ idf_component_register(SRCS ${SOURCES}
                         efuse
                         bt
                         fatfs
-                        ${MAIN_PRIV_REQUIRES_EXTRA}
                     )
 
 # Use target_compile_definitions to define BOARD_TYPE, BOARD_NAME
@@ -983,6 +982,9 @@ target_compile_definitions(${COMPONENT_LIB}
                     PRIVATE BOARD_TYPE=\"${BOARD_TYPE}\" BOARD_NAME=\"${BOARD_NAME}\"
                     PRIVATE BUILTIN_TEXT_FONT=${BUILTIN_TEXT_FONT} BUILTIN_ICON_FONT=${BUILTIN_ICON_FONT}
                     )
+if(CONFIG_BOARD_TYPE_ESP32_ALARM)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE ESP32_ALARM_USE_NEW_UI=1)
+endif()
 
 # Add generation rules
 add_custom_command(

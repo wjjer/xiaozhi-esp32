@@ -1,6 +1,7 @@
 #include "audio_service.h"
 #include <esp_log.h>
 #include <cstring>
+#include "board.h"
 
 #define RATE_CVT_CFG(_src_rate, _dest_rate, _channel)        \
     (esp_ae_rate_cvt_cfg_t)                                  \
@@ -99,7 +100,11 @@ void AudioService::Initialize(AudioCodec* codec) {
 #endif
 
     audio_processor_->OnOutput([this](std::vector<int16_t>&& data) {
-        PushTaskToEncodeQueue(kAudioTaskTypeEncodeToSendQueue, std::move(data));
+        // Only send audio when voice is detected (VAD state = speaking)
+        // This significantly reduces network load and prevents queue overflow
+        if (voice_detected_) {
+            PushTaskToEncodeQueue(kAudioTaskTypeEncodeToSendQueue, std::move(data));
+        }
     });
 
     audio_processor_->OnVadStateChange([this](bool speaking) {
@@ -123,6 +128,10 @@ void AudioService::Initialize(AudioCodec* codec) {
 }
 
 void AudioService::Start() {
+    if (!service_stopped_) {
+        return;
+    }
+
     service_stopped_ = false;
     xEventGroupClearBits(event_group_, AS_EVENT_AUDIO_TESTING_RUNNING | AS_EVENT_WAKE_WORD_RUNNING | AS_EVENT_AUDIO_PROCESSOR_RUNNING);
 
@@ -631,6 +640,11 @@ void AudioService::SetCallbacks(AudioServiceCallbacks& callbacks) {
 }
 
 void AudioService::PlaySound(const std::string_view& ogg) {
+    if (!codec_) {
+        ESP_LOGE(TAG, "Codec not initialized, cannot play sound");
+        return;
+    }
+    
     if (!codec_->output_enabled()) {
         esp_timer_stop(audio_power_timer_);
         esp_timer_start_periodic(audio_power_timer_, AUDIO_POWER_CHECK_INTERVAL_MS * 1000);
@@ -683,6 +697,28 @@ void AudioService::CheckAndUpdateAudioPowerState() {
     auto now = std::chrono::steady_clock::now();
     auto input_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_input_time_).count();
     auto output_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_output_time_).count();
+    
+    // 只在AI模式下进行电源管理检查
+    // 蓝牙播放/FM播放/AUX播放等模式本身是播放状态，跳过检查
+    bool is_ai_mode = true;
+    auto& board = Board::GetInstance();
+    // 尝试获取当前模式
+    // 检查是否为播放模式（非AI模式），如果是则跳过电源管理
+    // 使用dynamic_cast检查board是否为支持播放模式的类型
+    auto* playback_board = dynamic_cast<Board*>(&board);
+    if (playback_board != nullptr) {
+        // 调用IsPlaybackMode()判断当前是否为播放模式
+        // 播放模式包括：蓝牙播放、FM播放、TF卡播放、AUX播放等
+        if (playback_board->IsPlaybackMode()) {
+            is_ai_mode = false;
+        }
+    }
+    
+    if (!is_ai_mode) {
+        // 非AI模式（播放模式），跳过电源管理检查，保持输出启用
+        return;
+    }
+    
     if (input_elapsed > AUDIO_POWER_TIMEOUT_MS && codec_->input_enabled()) {
         codec_->EnableInput(false);
     }
@@ -722,6 +758,15 @@ void AudioService::SetModelsList(srmodel_list_t* models_list) {
                 callbacks_.on_wake_word_detected(wake_word);
             }
         });
+    }
+}
+
+void AudioService::UpdateLastOutputTime() {
+    last_output_time_ = std::chrono::steady_clock::now();
+    if (!codec_->output_enabled()) {
+        esp_timer_stop(audio_power_timer_);
+        esp_timer_start_periodic(audio_power_timer_, AUDIO_POWER_CHECK_INTERVAL_MS * 1000);
+        codec_->EnableOutput(true);
     }
 }
 

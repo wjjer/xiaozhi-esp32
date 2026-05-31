@@ -70,6 +70,7 @@ public:
     virtual Backlight* GetBacklight() { return nullptr; }
     virtual Led* GetLed();
     virtual AudioCodec* GetAudioCodec() = 0;
+    virtual void OnAudioServiceStarted() {}
     virtual bool GetTemperature(float& esp32temp);
     virtual Display* GetDisplay();
     virtual Camera* GetCamera();
@@ -82,6 +83,18 @@ public:
     virtual void SetPowerSaveLevel(PowerSaveLevel level) = 0;
     virtual std::string GetBoardJson() = 0;
     virtual std::string GetDeviceStatusJson() = 0;
+    virtual void Shutdown() {};
+    
+    /**
+     * Stop network reconnect attempts
+     */
+    virtual void StopNetworkReconnect();
+    
+    /**
+     * Resume network reconnect attempts
+     */
+    virtual void ResumeNetworkReconnect();
+    virtual bool IsPlaybackMode() { return false; }
 };
 
 #define DECLARE_BOARD(BOARD_CLASS_NAME) \

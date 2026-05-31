@@ -147,7 +147,7 @@ bool WebsocketProtocol::OpenAudioChannel() {
             }
         } else {
             // Parse JSON data
-            auto root = cJSON_ParseWithLength(data, len);
+            auto root = cJSON_Parse(data);
             auto type = cJSON_GetObjectItem(root, "type");
             if (cJSON_IsString(type)) {
                 if (strcmp(type->valuestring, "hello") == 0) {
@@ -158,7 +158,7 @@ bool WebsocketProtocol::OpenAudioChannel() {
                     }
                 }
             } else {
-                ESP_LOGE(TAG, "Missing message type, data: %s", std::string(data, len).c_str());
+                ESP_LOGE(TAG, "Missing message type, data: %s", data);
             }
             cJSON_Delete(root);
         }
@@ -227,7 +227,11 @@ std::string WebsocketProtocol::GetHelloMessage() {
 
 void WebsocketProtocol::ParseServerHello(const cJSON* root) {
     auto transport = cJSON_GetObjectItem(root, "transport");
-    if (transport == nullptr || strcmp(transport->valuestring, "websocket") != 0) {
+    if (transport == nullptr) {
+        ESP_LOGE(TAG, "Transport is not specified");
+        return;
+    }
+    if (strcmp(transport->valuestring, "websocket") != 0) {
         ESP_LOGE(TAG, "Unsupported transport: %s", transport->valuestring);
         return;
     }

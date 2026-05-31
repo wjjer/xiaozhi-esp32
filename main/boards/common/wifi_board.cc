@@ -10,6 +10,7 @@
 #include <freertos/task.h>
 #include <esp_network.h>
 #include <esp_log.h>
+#include <esp_wifi.h>
 #include <utility>
 
 #include <font_awesome.h>
@@ -101,6 +102,23 @@ void WifiBoard::TryWifiConnect() {
         vTaskDelay(pdMS_TO_TICKS(1500));
         StartWifiConfigMode();
     }
+}
+
+void WifiBoard::StopWifiConnectTimer() {
+    if (connect_timer_) {
+        esp_timer_stop(connect_timer_);
+        ESP_LOGI(TAG, "WiFi connection timeout timer stopped");
+    }
+}
+
+void WifiBoard::StopWifiReconnect() {
+    // esp_wifi_set_auto_reconnect(false);
+    ESP_LOGI(TAG, "WiFi auto reconnect stopped");
+}
+
+void WifiBoard::ResumeWifiReconnect() {
+    // esp_wifi_set_auto_reconnect(true);
+    ESP_LOGI(TAG, "WiFi auto reconnect resumed");
 }
 
 void WifiBoard::OnNetworkEvent(NetworkEvent event, const std::string& data) {

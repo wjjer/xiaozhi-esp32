@@ -56,6 +56,13 @@ bool MqttProtocol::Start() {
     return StartMqttClient(false);
 }
 
+void MqttProtocol::StopReconnect() {
+    ESP_LOGI(TAG, "Stopping MQTT reconnect timer");
+    if (reconnect_timer_ != nullptr) {
+        esp_timer_stop(reconnect_timer_);
+    }
+}
+
 bool MqttProtocol::StartMqttClient(bool report_error) {
     if (mqtt_ != nullptr) {
         ESP_LOGW(TAG, "Mqtt client already started");
@@ -124,6 +131,17 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
                     }
                 });
             }
+        } else if (strcmp(type->valuestring, "shutdown") == 0) {
+            ESP_LOGI(TAG, "Received shutdown message from server");
+            auto alive = alive_;  // Capture alive flag
+            Application::GetInstance().Schedule([alive]() {
+                if (*alive) {
+                    ESP_LOGI(TAG, "Executing shutdown command");
+                    // 调用系统关机功能
+                    auto& board = Board::GetInstance();
+                    board.Shutdown();
+                }
+            });
         } else if (on_incoming_json_ != nullptr) {
             on_incoming_json_(root);
         }
@@ -321,7 +339,11 @@ std::string MqttProtocol::GetHelloMessage() {
 
 void MqttProtocol::ParseServerHello(const cJSON* root) {
     auto transport = cJSON_GetObjectItem(root, "transport");
-    if (transport == nullptr || strcmp(transport->valuestring, "udp") != 0) {
+    if (transport == nullptr) {
+        ESP_LOGE(TAG, "Transport is not specified");
+        return;
+    }
+    if (strcmp(transport->valuestring, "udp") != 0) {
         ESP_LOGE(TAG, "Unsupported transport: %s", transport->valuestring);
         return;
     }
@@ -350,10 +372,21 @@ void MqttProtocol::ParseServerHello(const cJSON* root) {
         ESP_LOGE(TAG, "UDP is not specified");
         return;
     }
-    udp_server_ = cJSON_GetObjectItem(udp, "server")->valuestring;
-    udp_port_ = cJSON_GetObjectItem(udp, "port")->valueint;
-    auto key = cJSON_GetObjectItem(udp, "key")->valuestring;
-    auto nonce = cJSON_GetObjectItem(udp, "nonce")->valuestring;
+    
+    auto server_item = cJSON_GetObjectItem(udp, "server");
+    auto port_item = cJSON_GetObjectItem(udp, "port");
+    auto key_item = cJSON_GetObjectItem(udp, "key");
+    auto nonce_item = cJSON_GetObjectItem(udp, "nonce");
+    
+    if (!cJSON_IsString(server_item) || !cJSON_IsNumber(port_item) || !cJSON_IsString(key_item) || !cJSON_IsString(nonce_item)) {
+        ESP_LOGE(TAG, "UDP configuration is incomplete");
+        return;
+    }
+    
+    udp_server_ = server_item->valuestring;
+    udp_port_ = port_item->valueint;
+    auto key = key_item->valuestring;
+    auto nonce = nonce_item->valuestring;
 
     // auto encryption = cJSON_GetObjectItem(udp, "encryption")->valuestring;
     // ESP_LOGI(TAG, "UDP server: %s, port: %d, encryption: %s", udp_server_.c_str(), udp_port_, encryption);

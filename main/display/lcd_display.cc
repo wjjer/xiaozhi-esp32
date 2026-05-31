@@ -3,6 +3,8 @@
 #include "settings.h"
 #include "lvgl_theme.h"
 #include "assets/lang_config.h"
+#include "alarm_manager.h"
+#include "time_tools_manager.h"
 
 #include <vector>
 #include <algorithm>
@@ -11,21 +13,186 @@
 #include <esp_err.h>
 #include <esp_lvgl_port.h>
 #include <esp_psram.h>
+#include <esp_heap_caps.h>
 #include <cstring>
 #include <src/misc/cache/lv_cache.h>
 
 #include "board.h"
+#include "assets.h"
+#if defined(ESP32_ALARM_USE_NEW_UI) && ESP32_ALARM_USE_NEW_UI
+#include "ui_router.h"
+#include "ui_system.h"
+#include "ui_bridge.h"
+#include "gui_guider.h"
+#include "alarm_ui_assets.h"
+#endif
 
 #define TAG "LcdDisplay"
 
 LV_FONT_DECLARE(BUILTIN_TEXT_FONT);
 LV_FONT_DECLARE(BUILTIN_ICON_FONT);
 LV_FONT_DECLARE(font_awesome_30_4);
+#ifdef BUILTIN_LARGE_FONT
+LV_FONT_DECLARE(BUILTIN_LARGE_FONT);
+#endif
+
+#if defined(ESP32_ALARM_USE_NEW_UI) && ESP32_ALARM_USE_NEW_UI
+void LcdDisplay::DialogConfirmCallback(lv_event_t* e) {
+    LcdDisplay* display = (LcdDisplay*)lv_event_get_user_data(e);
+    if (display && display->dialog_on_confirm_) {
+        display->dialog_on_confirm_();
+    }
+    if (display) {
+        display->HideDialog();
+    }
+}
+
+void LcdDisplay::DialogCancelCallback(lv_event_t* e) {
+    LcdDisplay* display = (LcdDisplay*)lv_event_get_user_data(e);
+    if (display && display->dialog_on_cancel_) {
+        display->dialog_on_cancel_();
+    }
+    if (display) {
+        display->HideDialog();
+    }
+}
+
+extern "C" void esp32_alarm_bind_home_events(lv_ui* ui) {
+    if (ui == nullptr) {
+        return;
+    }
+
+    auto bind_click = [](lv_obj_t* obj, const char* route) {
+        if (obj == nullptr || route == nullptr) {
+            return;
+        }
+        lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(
+            obj,
+            [](lv_event_t* e) {
+                const char* route_name = static_cast<const char*>(lv_event_get_user_data(e));
+                if (route_name == nullptr) {
+                    return;
+                }
+                ESP_LOGI(TAG, "home card clicked: %s", route_name);
+                UiRouter::GetInstance().NavigateTo(route_name);
+                auto* display = dynamic_cast<LcdDisplay*>(Board::GetInstance().GetDisplay());
+                if (display != nullptr) {
+                    display->ShowRoute(route_name);
+                }
+            },
+            LV_EVENT_CLICKED,
+            const_cast<char*>(route));
+    };
+
+    bind_click(ui->screen_home_card_ai, UiRouter::RouteAI);
+    bind_click(ui->screen_home_card_ai_img, UiRouter::RouteAI);
+    bind_click(ui->screen_home_card_story, UiRouter::RouteStudy);
+    bind_click(ui->screen_home_card_story_img, UiRouter::RouteStudy);
+    bind_click(ui->screen_home_card_alarm, UiRouter::RouteAlarm);
+    bind_click(ui->screen_home_card_alarm_img, UiRouter::RouteAlarm);
+    bind_click(ui->screen_home_card_tools, UiRouter::RouteAppGrid);
+    bind_click(ui->screen_home_card_tools_img, UiRouter::RouteAppGrid);
+    bind_click(ui->screen_home_card_focus, UiRouter::RouteFocus);
+    bind_click(ui->screen_home_card_focus_img, UiRouter::RouteFocus);
+    bind_click(ui->screen_home_card_stopwatch, UiRouter::RouteStopwatch);
+    bind_click(ui->screen_home_card_stopwatch_img, UiRouter::RouteStopwatch);
+    bind_click(ui->screen_home_card_timer, UiRouter::RouteTimer);
+    bind_click(ui->screen_home_card_timer_img, UiRouter::RouteTimer);
+    bind_click(ui->screen_home_card_all_subject_study, UiRouter::RouteStudyHub);
+    bind_click(ui->screen_home_card_all_subject_study_img, UiRouter::RouteStudyHub);
+    bind_click(ui->screen_home_card_sync_textbook, UiRouter::RouteStudyHub);
+    bind_click(ui->screen_home_card_sync_textbook_img, UiRouter::RouteStudyHub);
+    bind_click(ui->screen_home_card_micro_chat, UiRouter::RouteAI);
+    bind_click(ui->screen_home_card_micro_chat_img, UiRouter::RouteAI);
+    bind_click(ui->screen_home_card_baidu_netdisk, UiRouter::RouteStudyHub);
+    bind_click(ui->screen_home_card_baidu_netdisk_img, UiRouter::RouteStudyHub);
+    bind_click(ui->screen_home_card_word_study, UiRouter::RouteWordbook);
+    bind_click(ui->screen_home_card_word_study_img, UiRouter::RouteWordbook);
+    bind_click(ui->screen_home_card_dictionary, UiRouter::RouteWordbook);
+    bind_click(ui->screen_home_card_dictionary_img, UiRouter::RouteWordbook);
+    bind_click(ui->screen_home_card_settings, UiRouter::RoutePlaceholder);
+    bind_click(ui->screen_home_card_settings_img, UiRouter::RoutePlaceholder);
+    bind_click(ui->screen_home_card_music, UiRouter::RoutePlaceholder);
+    bind_click(ui->screen_home_card_music_img, UiRouter::RoutePlaceholder);
+    bind_click(ui->screen_home_card_local_content, UiRouter::RouteStudyHub);
+    bind_click(ui->screen_home_card_local_content_img, UiRouter::RouteStudyHub);
+    bind_click(ui->screen_home_card_k12, UiRouter::RouteK12);
+    bind_click(ui->screen_home_card_k12_img, UiRouter::RouteK12);
+    bind_click(ui->screen_home_card_vocabulary, UiRouter::RouteVocab);
+    bind_click(ui->screen_home_card_vocabulary_img, UiRouter::RouteVocab);
+    bind_click(ui->screen_home_card_english_query, UiRouter::RouteTranslate);
+    bind_click(ui->screen_home_card_english_query_img, UiRouter::RouteTranslate);
+    bind_click(ui->screen_home_card_weather, UiRouter::RouteWeather);
+    bind_click(ui->screen_home_card_weather_img, UiRouter::RouteWeather);
+    bind_click(ui->screen_home_card_voice_translate, UiRouter::RouteTranslate);
+    bind_click(ui->screen_home_card_voice_translate_img, UiRouter::RouteTranslate);
+}
+
+void LcdDisplay::ShowRoute(const std::string& route) {
+    if (!setup_ui_called_) {
+        ESP_LOGW(TAG, "ShowRoute('%s') called before SetupUI()", route.c_str());
+        return;
+    }
+    switch (UiRouter::ResolveRoutePage(route)) {
+        case UiRouter::RoutePage::Home:
+            SetupHomeScreen();
+            break;
+        case UiRouter::RoutePage::AppGrid:
+            SetupAppGridScreen();
+            break;
+        case UiRouter::RoutePage::AI:
+            SetupAiScreen();
+            break;
+        case UiRouter::RoutePage::Study:
+            SetupStudyScreen();
+            break;
+        case UiRouter::RoutePage::Alarm:
+            SetupAlarmScreen();
+            break;
+        case UiRouter::RoutePage::Weather:
+            SetupWeatherScreen();
+            break;
+        case UiRouter::RoutePage::Timer:
+            SetupTimerScreen();
+            break;
+        case UiRouter::RoutePage::Stopwatch:
+            SetupStopwatchScreen();
+            break;
+        case UiRouter::RoutePage::Focus:
+            SetupFocusScreen();
+            break;
+        case UiRouter::RoutePage::NightLight:
+            SetupNightLightScreen();
+            break;
+        case UiRouter::RoutePage::Translate:
+            SetupTranslateScreen();
+            break;
+        case UiRouter::RoutePage::Wordbook:
+            SetupWordbookScreen();
+            break;
+        case UiRouter::RoutePage::Vocab:
+            SetupVocabScreen();
+            break;
+        case UiRouter::RoutePage::K12:
+            SetupK12Screen();
+            break;
+        case UiRouter::RoutePage::Placeholder:
+        default:
+            SetupPlaceholderScreen(route.c_str(), "Feature coming soon");
+            break;
+    }
+}
+#endif
 
 void LcdDisplay::InitializeLcdThemes() {
     auto text_font = std::make_shared<LvglBuiltInFont>(&BUILTIN_TEXT_FONT);
     auto icon_font = std::make_shared<LvglBuiltInFont>(&BUILTIN_ICON_FONT);
+#ifdef BUILTIN_LARGE_FONT
+    auto large_icon_font = std::make_shared<LvglBuiltInFont>(&BUILTIN_LARGE_FONT);
+#else
     auto large_icon_font = std::make_shared<LvglBuiltInFont>(&font_awesome_30_4);
+#endif
 
     // light theme
     auto light_theme = new LvglTheme("light");
@@ -350,7 +517,7 @@ void LcdDisplay::Unlock() {
     lvgl_port_unlock();
 }
 
-#if CONFIG_USE_WECHAT_MESSAGE_STYLE
+#if CONFIG_USE_WECHAT_MESSAGE_STYLE && (!(defined(ESP32_ALARM_USE_NEW_UI) && ESP32_ALARM_USE_NEW_UI))
 void LcdDisplay::SetupUI() {
     // Prevent duplicate calls - if already called, return early
     if (setup_ui_called_) {
@@ -496,6 +663,7 @@ void LcdDisplay::SetupUI() {
     lv_obj_set_style_text_color(emoji_label_, lvgl_theme->text_color(), 0);
     lv_label_set_text(emoji_label_, FONT_AWESOME_MICROCHIP_AI);
 }
+
 #if CONFIG_IDF_TARGET_ESP32P4
 #define  MAX_MESSAGES 40
 #else
@@ -801,6 +969,30 @@ void LcdDisplay::ClearChatMessages() {
     ESP_LOGI(TAG, "Chat messages cleared");
 }
 #else
+#if defined(ESP32_ALARM_USE_NEW_UI) && ESP32_ALARM_USE_NEW_UI
+void LcdDisplay::SetupUI() {
+    if (setup_ui_called_) {
+        ESP_LOGW(TAG, "SetupUI() called multiple times, skipping duplicate call");
+        return;
+    }
+
+    Display::SetupUI();
+    DisplayLockGuard lock(this);
+    auto* theme = static_cast<LvglTheme*>(current_theme_);
+    auto* screen = lv_screen_active();
+    lv_obj_set_style_bg_color(screen, theme->background_color(), 0);
+    setup_ui(&esp32_alarm_ui);
+    content_ = esp32_alarm_ui.screen_boot;
+
+    home_time_label_ = esp32_alarm_ui.screen_home_home_time_label;
+    home_date_label_ = esp32_alarm_ui.screen_home_home_date_label;
+    home_status_label_ = esp32_alarm_ui.screen_home_home_status_label;
+    ai_state_icon_ = esp32_alarm_ui.screen_ai_ai_state_icon;
+    ai_state_label_ = esp32_alarm_ui.screen_ai_ai_state_label;
+    ai_message_label_ = esp32_alarm_ui.screen_ai_ai_message_label;
+
+}
+#else
 void LcdDisplay::SetupUI() {
     // Prevent duplicate calls - if already called, return early
     if (setup_ui_called_) {
@@ -992,7 +1184,20 @@ void LcdDisplay::SetupUI() {
     lv_obj_set_style_text_color(low_battery_label_, lv_color_white(), 0);
     lv_obj_center(low_battery_label_);
     lv_obj_add_flag(low_battery_popup_, LV_OBJ_FLAG_HIDDEN);
+
+#if defined(ESP32_ALARM_USE_NEW_UI) && ESP32_ALARM_USE_NEW_UI
+    if (content_ == nullptr) {
+        content_ = lv_obj_create(screen);
+        lv_obj_set_size(content_, LV_HOR_RES, LV_VER_RES - 24);
+        lv_obj_align(content_, LV_ALIGN_BOTTOM_MID, 0, 0);
+        lv_obj_set_style_radius(content_, 0, 0);
+        lv_obj_set_style_bg_color(content_, lvgl_theme->background_color(), 0);
+        lv_obj_set_style_border_width(content_, 0, 0);
+        lv_obj_set_style_pad_all(content_, 0, 0);
+    }
+#endif
 }
+#endif
 
 void LcdDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image) {
     DisplayLockGuard lock(this);
@@ -1033,7 +1238,15 @@ void LcdDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image) {
 void LcdDisplay::SetChatMessage(const char* role, const char* content) {
     if (!setup_ui_called_) {
         ESP_LOGW(TAG, "SetChatMessage('%s', '%s') called before SetupUI() - message will be lost!", role, content);
+        return;
     }
+#if defined(ESP32_ALARM_USE_NEW_UI) && ESP32_ALARM_USE_NEW_UI
+    // GUI Guider UI does not use the legacy chat bubble surface.
+    // Keep the call as a no-op to avoid mixing old chat layout with the new screens.
+    (void)role;
+    (void)content;
+    return;
+#else
     DisplayLockGuard lock(this);
     if (chat_message_label_ == nullptr) {
         if (setup_ui_called_) {
@@ -1057,6 +1270,7 @@ void LcdDisplay::SetChatMessage(const char* role, const char* content) {
         lv_obj_align(bottom_bar_, LV_ALIGN_BOTTOM_MID, 0, 0);
     }
 #endif
+#endif  // ESP32_ALARM_USE_NEW_UI
 }
 
 void LcdDisplay::ClearChatMessages() {
@@ -1074,7 +1288,32 @@ void LcdDisplay::ClearChatMessages() {
 void LcdDisplay::SetEmotion(const char* emotion) {
     if (!setup_ui_called_) {
         ESP_LOGW(TAG, "SetEmotion('%s') called before SetupUI() - emotion will not be displayed!", emotion);
+        return;
     }
+#if defined(ESP32_ALARM_USE_NEW_UI) && ESP32_ALARM_USE_NEW_UI
+    // Redirect to new UI implementation - map emotion to AI state
+    if (emotion == nullptr || strcmp(emotion, "neutral") == 0 || strcmp(emotion, "idle") == 0) {
+        SetAiState(0);  // idle
+    } else if (strcmp(emotion, "listening") == 0 || strcmp(emotion, "thinking") == 0) {
+        SetAiState(1);  // listening
+    } else if (strcmp(emotion, "speaking") == 0 || strcmp(emotion, "happy") == 0) {
+        SetAiState(3);  // speaking
+    }
+    // For other emotions, just ignore
+    return;
+#else
+    // Stop any running GIF animation
+    if (gif_controller_) {
+        DisplayLockGuard lock(this);
+        gif_controller_->Stop();
+        // Hide image before destroying GIF controller to prevent LVGL from
+        // accessing freed image data during rendering between lock scopes
+        if (emoji_image_) {
+            lv_obj_add_flag(emoji_image_, LV_OBJ_FLAG_HIDDEN);
+        }
+        gif_controller_.reset();
+    }
+    
     if (emoji_image_ == nullptr) {
         if (setup_ui_called_) {
             ESP_LOGW(TAG, "SetEmotion('%s') failed: emoji_image_ is nullptr (SetupUI() was called but emoji image not created)", emotion);
@@ -1088,10 +1327,6 @@ void LcdDisplay::SetEmotion(const char* emotion) {
         const char* utf8 = font_awesome_get_utf8(emotion);
         if (utf8 != nullptr && emoji_label_ != nullptr) {
             DisplayLockGuard lock(this);
-            if (gif_controller_) {
-                gif_controller_->Stop();
-                gif_controller_.reset();
-            }
             lv_label_set_text(emoji_label_, utf8);
             lv_obj_add_flag(emoji_image_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(emoji_label_, LV_OBJ_FLAG_HIDDEN);
@@ -1100,12 +1335,6 @@ void LcdDisplay::SetEmotion(const char* emotion) {
     }
 
     DisplayLockGuard lock(this);
-    // Stop any running GIF animation in the same lock scope as setting new image
-    // to prevent LVGL from accessing freed image data between operations
-    if (gif_controller_) {
-        gif_controller_->Stop();
-        gif_controller_.reset();
-    }
     if (image->IsGif()) {
         // Create new GIF controller
         gif_controller_ = std::make_unique<LvglGif>(image->image_dsc());
@@ -1147,8 +1376,68 @@ void LcdDisplay::SetEmotion(const char* emotion) {
         lv_obj_add_flag(emoji_label_, LV_OBJ_FLAG_HIDDEN);
     }
 #endif
+#endif  // ESP32_ALARM_USE_NEW_UI
 }
 
+#if defined(ESP32_ALARM_USE_NEW_UI) && ESP32_ALARM_USE_NEW_UI
+
+namespace {
+
+void ShowToastInternal(lv_obj_t* notification_label,
+                       lv_obj_t* status_label,
+                       const char* message) {
+    if (notification_label == nullptr) {
+        return;
+    }
+
+    lv_label_set_text(notification_label, message != nullptr ? message : "");
+    lv_obj_clear_flag(notification_label, LV_OBJ_FLAG_HIDDEN);
+
+    if (status_label != nullptr) {
+        lv_obj_add_flag(status_label, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+}  // namespace
+
+void LcdDisplay::SetStatus(const char* status) {
+    if (!setup_ui_called_) {
+        ESP_LOGW(TAG, "SetStatus('%s') called before SetupUI() - message will be lost!", status);
+        return;
+    }
+    SetHomeStatus(status);
+}
+
+void LcdDisplay::ShowNotification(const char* notification, int duration_ms) {
+    if (!setup_ui_called_) {
+        ESP_LOGW(TAG, "ShowNotification('%s') called before SetupUI() - message will be lost!", notification);
+        return;
+    }
+    (void)duration_ms;
+    DisplayLockGuard lock(this);
+    ShowToastInternal(notification_label_, status_label_, notification);
+}
+
+void LcdDisplay::SetTheme(Theme* theme) {
+    DisplayLockGuard lock(this);
+    
+    auto lvgl_theme = static_cast<LvglTheme*>(theme);
+    
+    // Get the active screen
+    lv_obj_t* screen = lv_screen_active();
+
+    // Set font
+    auto text_font = lvgl_theme->text_font()->font();
+
+    // Set parent text color
+    lv_obj_set_style_text_font(screen, text_font, 0);
+    lv_obj_set_style_text_color(screen, lvgl_theme->text_color(), 0);
+
+    // No errors occurred. Save theme to settings
+    Display::SetTheme(lvgl_theme);
+}
+
+#else
 void LcdDisplay::SetTheme(Theme* theme) {
     DisplayLockGuard lock(this);
     
@@ -1163,13 +1452,13 @@ void LcdDisplay::SetTheme(Theme* theme) {
     auto large_icon_font = lvgl_theme->large_icon_font()->font();
 
     if (text_font->line_height >= 40) {
-        lv_obj_set_style_text_font(mute_label_, large_icon_font, 0);
-        lv_obj_set_style_text_font(battery_label_, large_icon_font, 0);
-        lv_obj_set_style_text_font(network_label_, large_icon_font, 0);
+        if (mute_label_ != nullptr) lv_obj_set_style_text_font(mute_label_, large_icon_font, 0);
+        if (battery_label_ != nullptr) lv_obj_set_style_text_font(battery_label_, large_icon_font, 0);
+        if (network_label_ != nullptr) lv_obj_set_style_text_font(network_label_, large_icon_font, 0);
     } else {
-        lv_obj_set_style_text_font(mute_label_, icon_font, 0);
-        lv_obj_set_style_text_font(battery_label_, icon_font, 0);
-        lv_obj_set_style_text_font(network_label_, icon_font, 0);
+        if (mute_label_ != nullptr) lv_obj_set_style_text_font(mute_label_, icon_font, 0);
+        if (battery_label_ != nullptr) lv_obj_set_style_text_font(battery_label_, icon_font, 0);
+        if (network_label_ != nullptr) lv_obj_set_style_text_font(network_label_, icon_font, 0);
     }
 
     // Set parent text color
@@ -1177,11 +1466,13 @@ void LcdDisplay::SetTheme(Theme* theme) {
     lv_obj_set_style_text_color(screen, lvgl_theme->text_color(), 0);
 
     // Set background image
-    if (lvgl_theme->background_image() != nullptr) {
-        lv_obj_set_style_bg_image_src(container_, lvgl_theme->background_image()->image_dsc(), 0);
-    } else {
-        lv_obj_set_style_bg_image_src(container_, nullptr, 0);
-        lv_obj_set_style_bg_color(container_, lvgl_theme->background_color(), 0);
+    if (container_ != nullptr) {
+        if (lvgl_theme->background_image() != nullptr) {
+            lv_obj_set_style_bg_image_src(container_, lvgl_theme->background_image()->image_dsc(), 0);
+        } else {
+            lv_obj_set_style_bg_image_src(container_, nullptr, 0);
+            lv_obj_set_style_bg_color(container_, lvgl_theme->background_color(), 0);
+        }
     }
     
     // Update top bar background color with 50% opacity
@@ -1191,80 +1482,82 @@ void LcdDisplay::SetTheme(Theme* theme) {
     }
     
     // Update status bar elements
-    lv_obj_set_style_text_color(network_label_, lvgl_theme->text_color(), 0);
-    lv_obj_set_style_text_color(status_label_, lvgl_theme->text_color(), 0);
-    lv_obj_set_style_text_color(notification_label_, lvgl_theme->text_color(), 0);
-    lv_obj_set_style_text_color(mute_label_, lvgl_theme->text_color(), 0);
-    lv_obj_set_style_text_color(battery_label_, lvgl_theme->text_color(), 0);
-    lv_obj_set_style_text_color(emoji_label_, lvgl_theme->text_color(), 0);
+    if (network_label_ != nullptr) lv_obj_set_style_text_color(network_label_, lvgl_theme->text_color(), 0);
+    if (status_label_ != nullptr) lv_obj_set_style_text_color(status_label_, lvgl_theme->text_color(), 0);
+    if (notification_label_ != nullptr) lv_obj_set_style_text_color(notification_label_, lvgl_theme->text_color(), 0);
+    if (mute_label_ != nullptr) lv_obj_set_style_text_color(mute_label_, lvgl_theme->text_color(), 0);
+    if (battery_label_ != nullptr) lv_obj_set_style_text_color(battery_label_, lvgl_theme->text_color(), 0);
+    if (emoji_label_ != nullptr) lv_obj_set_style_text_color(emoji_label_, lvgl_theme->text_color(), 0);
 
     // If we have the chat message style, update all message bubbles
 #if CONFIG_USE_WECHAT_MESSAGE_STYLE
-    // Set content background opacity
-    lv_obj_set_style_bg_opa(content_, LV_OPA_TRANSP, 0);
+    if (content_ != nullptr) {
+        // Set content background opacity
+        lv_obj_set_style_bg_opa(content_, LV_OPA_TRANSP, 0);
 
-    // Iterate through all children of content (message containers or bubbles)
-    uint32_t child_count = lv_obj_get_child_cnt(content_);
-    for (uint32_t i = 0; i < child_count; i++) {
-        lv_obj_t* obj = lv_obj_get_child(content_, i);
-        if (obj == nullptr) continue;
-        
-        lv_obj_t* bubble = nullptr;
-        
-        // Check if this object is a container or bubble
-        // If it's a container (user or system message), get its child as bubble
-        // If it's a bubble (assistant message), use it directly
-        if (lv_obj_get_child_cnt(obj) > 0) {
-            // Might be a container, check if it's a user or system message container
-            // User and system message containers are transparent
-            lv_opa_t bg_opa = lv_obj_get_style_bg_opa(obj, LV_PART_MAIN);
-            if (bg_opa == LV_OPA_TRANSP) {
-                // This is a user or system message container
-                bubble = lv_obj_get_child(obj, 0);
+        // Iterate through all children of content (message containers or bubbles)
+        uint32_t child_count = lv_obj_get_child_cnt(content_);
+        for (uint32_t i = 0; i < child_count; i++) {
+            lv_obj_t* obj = lv_obj_get_child(content_, i);
+            if (obj == nullptr) continue;
+            
+            lv_obj_t* bubble = nullptr;
+            
+            // Check if this object is a container or bubble
+            // If it's a container (user or system message), get its child as bubble
+            // If it's a bubble (assistant message), use it directly
+            if (lv_obj_get_child_cnt(obj) > 0) {
+                // Might be a container, check if it's a user or system message container
+                // User and system message containers are transparent
+                lv_opa_t bg_opa = lv_obj_get_style_bg_opa(obj, LV_PART_MAIN);
+                if (bg_opa == LV_OPA_TRANSP) {
+                    // This is a user or system message container
+                    bubble = lv_obj_get_child(obj, 0);
+                } else {
+                    // This might be an assistant message bubble itself
+                    bubble = obj;
+                }
             } else {
-                // This might be an assistant message bubble itself
-                bubble = obj;
-            }
-        } else {
-            // No child elements, might be other UI elements, skip
-            continue;
-        }
-        
-        if (bubble == nullptr) continue;
-        
-        // Use saved user data to identify bubble type
-        void* bubble_type_ptr = lv_obj_get_user_data(bubble);
-        if (bubble_type_ptr != nullptr) {
-            const char* bubble_type = static_cast<const char*>(bubble_type_ptr);
-            
-            // Apply correct color based on bubble type
-            if (strcmp(bubble_type, "user") == 0) {
-                lv_obj_set_style_bg_color(bubble, lvgl_theme->user_bubble_color(), 0);
-            } else if (strcmp(bubble_type, "assistant") == 0) {
-                lv_obj_set_style_bg_color(bubble, lvgl_theme->assistant_bubble_color(), 0); 
-            } else if (strcmp(bubble_type, "system") == 0) {
-                lv_obj_set_style_bg_color(bubble, lvgl_theme->system_bubble_color(), 0);
-            } else if (strcmp(bubble_type, "image") == 0) {
-                lv_obj_set_style_bg_color(bubble, lvgl_theme->system_bubble_color(), 0);
+                // No child elements, might be other UI elements, skip
+                continue;
             }
             
-            // Update border color
-            lv_obj_set_style_border_color(bubble, lvgl_theme->border_color(), 0);
+            if (bubble == nullptr) continue;
             
-            // Update text color for the message
-            if (lv_obj_get_child_cnt(bubble) > 0) {
-                lv_obj_t* text = lv_obj_get_child(bubble, 0);
-                if (text != nullptr) {
-                    // Set text color based on bubble type
-                    if (strcmp(bubble_type, "system") == 0) {
-                        lv_obj_set_style_text_color(text, lvgl_theme->system_text_color(), 0);
-                    } else {
-                        lv_obj_set_style_text_color(text, lvgl_theme->text_color(), 0);
+            // Use saved user data to identify bubble type
+            void* bubble_type_ptr = lv_obj_get_user_data(bubble);
+            if (bubble_type_ptr != nullptr) {
+                const char* bubble_type = static_cast<const char*>(bubble_type_ptr);
+                
+                // Apply correct color based on bubble type
+                if (strcmp(bubble_type, "user") == 0) {
+                    lv_obj_set_style_bg_color(bubble, lvgl_theme->user_bubble_color(), 0);
+                } else if (strcmp(bubble_type, "assistant") == 0) {
+                    lv_obj_set_style_bg_color(bubble, lvgl_theme->assistant_bubble_color(), 0); 
+                } else if (strcmp(bubble_type, "system") == 0) {
+                    lv_obj_set_style_bg_color(bubble, lvgl_theme->system_bubble_color(), 0);
+                } else if (strcmp(bubble_type, "image") == 0) {
+                    lv_obj_set_style_bg_color(bubble, lvgl_theme->system_bubble_color(), 0);
+                }
+                
+                // Update border color
+                lv_obj_set_style_border_color(bubble, lvgl_theme->border_color(), 0);
+                
+                // Update text color for the message
+                if (lv_obj_get_child_cnt(bubble) > 0) {
+                    lv_obj_t* text = lv_obj_get_child(bubble, 0);
+                    if (text != nullptr) {
+                        // Set text color based on bubble type
+                        if (strcmp(bubble_type, "system") == 0) {
+                            lv_obj_set_style_text_color(text, lvgl_theme->system_text_color(), 0);
+                        } else {
+                            lv_obj_set_style_text_color(text, lvgl_theme->text_color(), 0);
+                        }
                     }
                 }
+            } else {
+                ESP_LOGW(TAG, "child[%lu] Bubble type is not found", i);
             }
-        } else {
-            ESP_LOGW(TAG, "child[%lu] Bubble type is not found", i);
         }
     }
 #else
@@ -1285,11 +1578,14 @@ void LcdDisplay::SetTheme(Theme* theme) {
 #endif
     
     // Update low battery popup
-    lv_obj_set_style_bg_color(low_battery_popup_, lvgl_theme->low_battery_color(), 0);
+    if (low_battery_popup_ != nullptr) {
+        lv_obj_set_style_bg_color(low_battery_popup_, lvgl_theme->low_battery_color(), 0);
+    }
 
     // No errors occurred. Save theme to settings
     Display::SetTheme(lvgl_theme);
 }
+#endif
 
 void LcdDisplay::SetHideSubtitle(bool hide) {
     DisplayLockGuard lock(this);
@@ -1308,3 +1604,373 @@ void LcdDisplay::SetHideSubtitle(bool hide) {
         }
     }
 }
+
+#if defined(ESP32_ALARM_USE_NEW_UI) && ESP32_ALARM_USE_NEW_UI
+namespace {
+void AlarmLoadGeneratedScreen(lv_obj_t* screen, lv_obj_t** content) {
+    if (screen == nullptr) {
+        return;
+    }
+    lv_scr_load(screen);
+    if (content != nullptr) {
+        *content = screen;
+    }
+}
+}  // namespace
+
+void LcdDisplay::ResetAlarmUiRefs() {
+    home_time_label_ = nullptr;
+    home_date_label_ = nullptr;
+    home_status_label_ = nullptr;
+    app_grid_title_label_ = nullptr;
+    app_grid_container_ = nullptr;
+    app_back_button_ = nullptr;
+    placeholder_title_label_ = nullptr;
+    placeholder_desc_label_ = nullptr;
+    ai_state_panel_ = nullptr;
+    ai_state_image_ = nullptr;
+    ai_character_image_ = nullptr;
+    ai_state_icon_ = nullptr;
+    ai_state_label_ = nullptr;
+    ai_wave_container_ = nullptr;
+    ai_thinking_indicator_ = nullptr;
+    ai_speaking_wave_1_ = nullptr;
+    ai_speaking_wave_2_ = nullptr;
+    ai_speaking_wave_3_ = nullptr;
+    ai_message_label_ = nullptr;
+    study_card_translate_ = nullptr;
+    study_card_wordbook_ = nullptr;
+    study_card_vocab_ = nullptr;
+    study_card_k12_ = nullptr;
+    dialog_overlay_ = nullptr;
+    dialog_panel_ = nullptr;
+    toast_label_ = nullptr;
+    toast_timer_ = nullptr;
+    ai_float_panel_ = nullptr;
+    ai_float_icon_ = nullptr;
+    ai_float_label_ = nullptr;
+    alarm_ui_image_cache_.clear();
+}
+
+lv_obj_t* LcdDisplay::PrepareAlarmUiContent(uint32_t bg_color) {
+    (void)bg_color;
+    return content_;
+}
+
+void LcdDisplay::AttachTouchHandle(esp_lcd_touch_handle_t touch_handle) {
+    touch_handle_ = touch_handle;
+    if (touch_handle_ == nullptr || display_ == nullptr) {
+        return;
+    }
+
+    const lvgl_port_touch_cfg_t touch_cfg = {
+        .disp = display_,
+        .handle = touch_handle_,
+    };
+    lvgl_port_add_touch(&touch_cfg);
+}
+
+void LcdDisplay::SetupBootScreen() {
+    if (!setup_ui_called_) {
+        return;
+    }
+    DisplayLockGuard lock(this);
+    AlarmLoadGeneratedScreen(esp32_alarm_ui.screen_boot, &content_);
+}
+
+void LcdDisplay::SetupHomeScreen() {
+    if (!setup_ui_called_) {
+        ESP_LOGW(TAG, "SetupHomeScreen() called before SetupUI()");
+        return;
+    }
+    UiSystem::GetInstance().SetState(UiSystemState::Home);
+    DisplayLockGuard lock(this);
+    AlarmLoadGeneratedScreen(esp32_alarm_ui.screen_home, &content_);
+    home_time_label_ = esp32_alarm_ui.screen_home_home_time_label;
+    home_date_label_ = esp32_alarm_ui.screen_home_home_date_label;
+    home_status_label_ = esp32_alarm_ui.screen_home_home_status_label;
+}
+
+void LcdDisplay::SetupAppGridScreen() {
+    if (!setup_ui_called_) {
+        ESP_LOGW(TAG, "SetupAppGridScreen() called before SetupUI()");
+        return;
+    }
+    UiSystem::GetInstance().SetState(UiSystemState::AppGrid);
+    DisplayLockGuard lock(this);
+    AlarmLoadGeneratedScreen(esp32_alarm_ui.screen_app_grid, &content_);
+}
+
+void LcdDisplay::SetupPlaceholderScreen(const char* title, const char* description) {
+    (void)description;
+    UiSystem::GetInstance().SetHomeStatus(title != nullptr ? title : "Feature pending");
+    SetupAppGridScreen();
+    ShowNotification(title != nullptr ? title : "Feature pending", 1200);
+}
+
+void LcdDisplay::SetupAiScreen() {
+    if (!setup_ui_called_) {
+        ESP_LOGW(TAG, "SetupAiScreen() called before SetupUI()");
+        return;
+    }
+    UiSystem::GetInstance().SetState(UiSystemState::VoiceSpeaking);
+    UiSystem::GetInstance().SetHomeStatus("AI page");
+    DisplayLockGuard lock(this);
+    AlarmLoadGeneratedScreen(esp32_alarm_ui.screen_ai, &content_);
+    ai_character_image_ = esp32_alarm_ui.screen_ai_ai_character_image;
+    ai_state_icon_ = esp32_alarm_ui.screen_ai_ai_state_icon;
+    ai_state_label_ = esp32_alarm_ui.screen_ai_ai_state_label;
+    ai_message_label_ = esp32_alarm_ui.screen_ai_ai_message_label;
+    chat_message_label_ = ai_message_label_;
+}
+
+void LcdDisplay::SetAiState(int state) {
+    if (ai_state_icon_ == nullptr || ai_state_label_ == nullptr || ai_character_image_ == nullptr) {
+        return;
+    }
+
+    DisplayLockGuard lock(this);
+    switch (state) {
+        case 1:
+            UiSystem::GetInstance().SetState(UiSystemState::VoiceListening);
+            UiSystem::GetInstance().SetHomeStatus("Listening");
+            alarm_ui_set_png_fit(ai_character_image_, "ai_character_listening.png", 110, 110);
+            alarm_ui_set_png_fit(ai_state_icon_, "mic_button_listening.png", 46, 46);
+            lv_label_set_text(ai_state_label_, "Listening");
+            break;
+        case 2:
+            UiSystem::GetInstance().SetState(UiSystemState::VoiceThinking);
+            UiSystem::GetInstance().SetHomeStatus("Thinking");
+            alarm_ui_set_png_fit(ai_character_image_, "ai_character_thinking.png", 110, 110);
+            alarm_ui_set_png_fit(ai_state_icon_, "mic_button_thinking.png", 46, 46);
+            lv_label_set_text(ai_state_label_, "Thinking");
+            break;
+        case 3:
+            UiSystem::GetInstance().SetState(UiSystemState::VoiceSpeaking);
+            UiSystem::GetInstance().SetHomeStatus("Speaking");
+            alarm_ui_set_png_fit(ai_character_image_, "ai_character_speaking.png", 110, 110);
+            alarm_ui_set_png_fit(ai_state_icon_, "mic_button_speaking.png", 46, 46);
+            lv_label_set_text(ai_state_label_, "Speaking");
+            break;
+        case 0:
+        default:
+            UiSystem::GetInstance().SetState(UiSystemState::Standby);
+            UiSystem::GetInstance().SetHomeStatus("AI idle");
+            alarm_ui_set_png_fit(ai_character_image_, "ai_character_idle.png", 110, 110);
+            alarm_ui_set_png_fit(ai_state_icon_, "mic_button_idle.png", 46, 46);
+            lv_label_set_text(ai_state_label_, "Waiting");
+            break;
+    }
+}
+
+void LcdDisplay::SetAiMessage(const char* message) {
+    if (ai_message_label_ == nullptr) {
+        return;
+    }
+    DisplayLockGuard lock(this);
+    lv_label_set_text(ai_message_label_, (message != nullptr && message[0] != '\0') ? message : "Ask me anything.");
+}
+
+void LcdDisplay::SetupStudyScreen() {
+    if (!setup_ui_called_) {
+        return;
+    }
+    UiSystem::GetInstance().SetState(UiSystemState::AppGrid);
+    UiSystem::GetInstance().SetHomeStatus("Study page");
+    DisplayLockGuard lock(this);
+    AlarmLoadGeneratedScreen(esp32_alarm_ui.screen_study, &content_);
+}
+
+void LcdDisplay::SetupAlarmScreen() {
+    if (!setup_ui_called_) {
+        return;
+    }
+    UiSystem::GetInstance().SetState(UiSystemState::AppGrid);
+    UiSystem::GetInstance().SetHomeStatus("Alarm page");
+    DisplayLockGuard lock(this);
+    AlarmLoadGeneratedScreen(esp32_alarm_ui.screen_alarm, &content_);
+}
+
+void LcdDisplay::SetupWeatherScreen() {
+    if (!setup_ui_called_) {
+        return;
+    }
+    UiSystem::GetInstance().SetState(UiSystemState::AppGrid);
+    UiSystem::GetInstance().SetHomeStatus("Weather page");
+    DisplayLockGuard lock(this);
+    AlarmLoadGeneratedScreen(esp32_alarm_ui.screen_weather, &content_);
+}
+
+void LcdDisplay::SetupTimerScreen() {
+    if (!setup_ui_called_) {
+        return;
+    }
+    UiSystem::GetInstance().SetState(UiSystemState::AppGrid);
+    UiSystem::GetInstance().SetHomeStatus("Timer page");
+    DisplayLockGuard lock(this);
+    AlarmLoadGeneratedScreen(esp32_alarm_ui.screen_timer, &content_);
+}
+
+void LcdDisplay::SetupStopwatchScreen() {
+    if (!setup_ui_called_) {
+        return;
+    }
+    UiSystem::GetInstance().SetState(UiSystemState::AppGrid);
+    UiSystem::GetInstance().SetHomeStatus("Stopwatch page");
+    DisplayLockGuard lock(this);
+    AlarmLoadGeneratedScreen(esp32_alarm_ui.screen_stopwatch, &content_);
+}
+
+void LcdDisplay::SetupFocusScreen() {
+    if (!setup_ui_called_) {
+        return;
+    }
+    UiSystem::GetInstance().SetState(UiSystemState::AppGrid);
+    UiSystem::GetInstance().SetHomeStatus("Focus page");
+    DisplayLockGuard lock(this);
+    AlarmLoadGeneratedScreen(esp32_alarm_ui.screen_focus, &content_);
+}
+
+void LcdDisplay::SetupNightLightScreen() {
+    if (!setup_ui_called_) {
+        return;
+    }
+    UiSystem::GetInstance().SetState(UiSystemState::AppGrid);
+    UiSystem::GetInstance().SetHomeStatus("Night light page");
+    DisplayLockGuard lock(this);
+    AlarmLoadGeneratedScreen(esp32_alarm_ui.screen_night_light, &content_);
+}
+
+void LcdDisplay::SetHomeTime(const char* time_text) {
+    if (home_time_label_ == nullptr) {
+        return;
+    }
+    DisplayLockGuard lock(this);
+    char time_buf[16];
+    const char* shown_time = time_text;
+    time_t now = time(nullptr);
+    struct tm* tm_info = localtime(&now);
+    if ((shown_time == nullptr || shown_time[0] == '\0') && tm_info != nullptr) {
+        strftime(time_buf, sizeof(time_buf), "%H:%M", tm_info);
+        shown_time = time_buf;
+    }
+    lv_label_set_text(home_time_label_, shown_time != nullptr ? shown_time : "--:--");
+    if (home_date_label_ != nullptr && tm_info != nullptr) {
+        char date_buf[24];
+        strftime(date_buf, sizeof(date_buf), "%a %m/%d", tm_info);
+        lv_label_set_text(home_date_label_, date_buf);
+    }
+}
+
+void LcdDisplay::SetHomeStatus(const char* status_text) {
+    UiSystem::GetInstance().SetHomeStatus(status_text != nullptr ? status_text : "");
+    if (home_status_label_ == nullptr) {
+        return;
+    }
+    DisplayLockGuard lock(this);
+    lv_label_set_text(home_status_label_, status_text != nullptr ? status_text : "");
+}
+
+void LcdDisplay::RefreshAlarmPage() {
+    if (UiRouter::GetInstance().CurrentRoute() == UiRouter::RouteAlarm) {
+        SetupAlarmScreen();
+    }
+}
+
+void LcdDisplay::ShowAlarmRinging(const char* message) {
+    if (!setup_ui_called_) {
+        return;
+    }
+    UiRouter::GetInstance().NavigateTo(UiRouter::RouteAlarm);
+    UiSystem::GetInstance().SetState(UiSystemState::AlarmRinging);
+    UiSystem::GetInstance().SetHomeStatus("Alarm ringing");
+    SetupAlarmScreen();
+    ShowNotification(message != nullptr ? message : "Alarm ringing", 3000);
+}
+
+void LcdDisplay::SetupTranslateScreen() {
+    UiSystem::GetInstance().SetHomeStatus("Dictionary pending integration");
+    SetupStudyScreen();
+    ShowNotification("Dictionary pending integration", 1600);
+}
+
+void LcdDisplay::SetupWordbookScreen() {
+    UiSystem::GetInstance().SetHomeStatus("Wordbook pending integration");
+    SetupStudyScreen();
+    ShowNotification("Wordbook pending integration", 1600);
+}
+
+void LcdDisplay::SetupVocabScreen() {
+    UiSystem::GetInstance().SetHomeStatus("Vocabulary pending integration");
+    SetupStudyScreen();
+    ShowNotification("Vocabulary pending integration", 1600);
+}
+
+void LcdDisplay::SetupK12Screen() {
+    UiSystem::GetInstance().SetHomeStatus("K12 pending integration");
+    SetupStudyScreen();
+    ShowNotification("K12 pending integration", 1600);
+}
+
+void LcdDisplay::SetupAlarmEditorScreen(int alarm_id, bool is_new) {
+    (void)alarm_id;
+    UiSystem::GetInstance().SetHomeStatus(is_new ? "New alarm pending integration" : "Edit alarm pending integration");
+    SetupAlarmScreen();
+    ShowNotification(is_new ? "New alarm pending integration" : "Edit alarm pending integration", 1600);
+}
+
+void LcdDisplay::SaveAlarmEditor() {
+    UiRouter::GetInstance().NavigateTo(UiRouter::RouteAlarm);
+    SetupAlarmScreen();
+}
+
+void LcdDisplay::DeleteAlarmEditor() {
+    UiRouter::GetInstance().NavigateTo(UiRouter::RouteAlarm);
+    SetupAlarmScreen();
+}
+
+void LcdDisplay::ShowToast(const char* message, int duration_ms) {
+    if (!setup_ui_called_) {
+        ESP_LOGW(TAG, "ShowToast('%s') called before SetupUI() - message will be lost!", message);
+        return;
+    }
+    (void)duration_ms;
+    DisplayLockGuard lock(this);
+    ShowToastInternal(notification_label_, status_label_, message);
+}
+
+void LcdDisplay::HideToast() {
+    DisplayLockGuard lock(this);
+    if (notification_label_ != nullptr) {
+        lv_obj_add_flag(notification_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (status_label_ != nullptr) {
+        lv_obj_remove_flag(status_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void LcdDisplay::ShowDialog(const char* title, const char* message,
+                           const char* btn_confirm, const char* btn_cancel,
+                           std::function<void()> on_confirm, std::function<void()> on_cancel) {
+    (void)btn_confirm;
+    (void)btn_cancel;
+    dialog_on_confirm_ = on_confirm;
+    dialog_on_cancel_ = on_cancel;
+    UiSystem::GetInstance().SetHomeStatus(title != nullptr ? title : "Dialog");
+    ShowNotification(message != nullptr ? message : "", 2000);
+}
+
+void LcdDisplay::HideDialog() {
+    dialog_overlay_ = nullptr;
+    dialog_panel_ = nullptr;
+    HideToast();
+}
+
+void LcdDisplay::ShowAiFloat(const char* message) {
+    SetAiMessage(message);
+}
+
+void LcdDisplay::HideAiFloat() {
+    SetAiMessage("");
+}
+#endif  // ESP32_ALARM_USE_NEW_UI

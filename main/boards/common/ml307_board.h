@@ -13,12 +13,17 @@ protected:
     gpio_num_t rx_pin_;
     gpio_num_t dtr_pin_;
     NetworkEventCallback network_event_callback_;
+    bool stop_reconnect_ = false;
 
     virtual std::string GetBoardJson() override;
 
     // Internal helper to trigger network event callback
     void OnNetworkEvent(NetworkEvent event, const std::string& data = "");
     
+    // Called after modem is detected but before network registration
+    // Subclasses can override to configure modem (e.g., dual SIM)
+    virtual void OnModemReady();
+
     // Network initialization task (runs in FreeRTOS task)
     static void NetworkTaskEntry(void* arg);
     void NetworkTask();
@@ -33,6 +38,16 @@ public:
     virtual void SetPowerSaveLevel(PowerSaveLevel level) override;
     virtual AudioCodec* GetAudioCodec() override { return nullptr; }
     virtual std::string GetDeviceStatusJson() override;
+    
+    /**
+     * Stop network reconnect attempts
+     */
+    virtual void StopNetworkReconnect();
+    
+    /**
+     * Resume network reconnect attempts
+     */
+    virtual void ResumeNetworkReconnect();
 };
 
 #endif // ML307_BOARD_H

@@ -1,0 +1,70 @@
+{
+  "board_name": "BreadDualTouchBoard",
+  "board_type": "面包板双网络+LCD+触摸+舵机",
+  "display": {
+    "type": "LCD",
+    "interface": "SPI",
+    "width": 240,
+    "height": 240,
+    "driver": "GC9D01N/GC9A01",
+    "color_format": "RGB565"
+  },
+  "audio": {
+    "input_sample_rate": 24000,
+    "output_sample_rate": 24000,
+    "codec": {
+      "input": "ES7210",
+      "output": "ES8311",
+      "interface": "I2S",
+      "i2c_address": "ES8311=0x18, ES7210=0x82"
+    }
+  },
+  "network": {
+    "wifi": true,
+    "ml307_4g": true,
+    "switchable": true,
+    "default": "WIFI"
+  },
+  "touch": {
+    "type": "ESP32 Touch Pad",
+    "channels": [
+      {"id": "TOUCH_PAD_NUM4", "label": "Left/Head", "threshold": 30000, "action": "Shake head"},
+      {"id": "TOUCH_PAD_NUM5", "label": "Right/Body", "threshold": 30000, "action": "Wag tail"}
+    ],
+    "read_interval_ms": 500
+  },
+  "servos": [
+    {
+      "gpio": 10,
+      "label": "Head Servo",
+      "function": "Shake head (left-right)",
+      "amplitude": 30,
+      "period": 500
+    },
+    {
+      "gpio": 11,
+      "label": "Tail Servo",
+      "function": "Wag tail (up-down)",
+      "amplitude": 45,
+      "period": 600
+    }
+  ],
+  "buttons": [
+    {"gpio": 0, "label": "BOOT", "functions": ["click: toggle chat", "double: switch network", "long: reset wifi"]}
+  ],
+  "led": [
+    {"gpio": 3, "label": "Built-in LED"}
+  ],
+  "power": {
+    "battery_monitoring": false,
+    "temperature_monitoring": false
+  },
+  "features": [
+    "WiFi + ML307 4G dual network",
+    "LCD display with emotion expressions",
+    "Dual touch points (head and body)",
+    "Servo control: shake head and wag tail",
+    "ES8311 + ES7210 audio codec",
+    "Boot button with multiple functions"
+  ]
+}

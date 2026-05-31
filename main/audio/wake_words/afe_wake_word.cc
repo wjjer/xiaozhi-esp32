@@ -209,7 +209,14 @@ void AfeWakeWord::EncodeWakeWordData() {
             esp_audio_enc_in_frame_t in = {};
             esp_audio_enc_out_frame_t out = {};
             
-            for (auto& pcm: this_->wake_word_pcm_) {
+            // 使用临时容器来避免在遍历过程中修改原容器
+            std::deque<std::vector<int16_t>> temp_pcm;
+            {
+                std::lock_guard<std::mutex> lock(this_->wake_word_mutex_);
+                temp_pcm = std::move(this_->wake_word_pcm_);
+            }
+            
+            for (auto& pcm: temp_pcm) {
                 if (in_buffer.empty()) {
                     in_buffer = std::move(pcm);
                 } else {
@@ -238,7 +245,7 @@ void AfeWakeWord::EncodeWakeWordData() {
                     in_buffer.erase(in_buffer.begin(), in_buffer.begin() + frame_size);
                 }
             }
-            this_->wake_word_pcm_.clear();
+            // 不需要再调用clear()，因为已经通过std::move将数据转移到temp_pcm中
             // Close encoder
             esp_opus_enc_close(encoder_handle);
             auto end_time = esp_timer_get_time();

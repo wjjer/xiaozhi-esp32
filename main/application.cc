@@ -1,6 +1,7 @@
 #include "application.h"
 #include "board.h"
 #include "display.h"
+#include "lcd_display.h"
 #include "system_info.h"
 #include "audio_codec.h"
 #include "mqtt_protocol.h"
@@ -9,6 +10,13 @@
 #include "mcp_server.h"
 #include "assets.h"
 #include "settings.h"
+#include "alarm_manager.h"
+#include "time_tools_manager.h"
+#if defined(ESP32_ALARM_USE_NEW_UI) && ESP32_ALARM_USE_NEW_UI
+#include "ui_router.h"
+#endif
+#include "dual_network_board.h"
+#include "ml307c_board.h"
 
 #include <cstring>
 #include <esp_log.h>
@@ -62,17 +70,55 @@ void Application::Initialize() {
     auto& board = Board::GetInstance();
     SetDeviceState(kDeviceStateStarting);
 
+#if defined(ESP32_ALARM_USE_NEW_UI) && ESP32_ALARM_USE_NEW_UI
+    AlarmManager::GetInstance().Initialize();
+    AlarmManager::GetInstance().SetRingingCallback([this](const AlarmItem& alarm) {
+        Schedule([this, alarm]() {
+            auto* display = dynamic_cast<LcdDisplay*>(Board::GetInstance().GetDisplay());
+            char message[96];
+            snprintf(message, sizeof(message), "%02d:%02d %s", alarm.hour, alarm.minute, alarm.label.c_str());
+            if (display != nullptr) {
+                display->ShowAlarmRinging(message);
+            }
+            PlaySound(Lang::Sounds::OGG_POPUP);
+        });
+    });
+    TimeToolsManager::GetInstance().Initialize();
+    TimeToolsManager::GetInstance().SetStateChangedCallback([this]() {
+        Schedule([]() {
+            auto* display = dynamic_cast<LcdDisplay*>(Board::GetInstance().GetDisplay());
+            if (display == nullptr) {
+                return;
+            }
+            const auto& route = UiRouter::GetInstance().CurrentRoute();
+            if (route == "timer") {
+                display->SetupTimerScreen();
+            } else if (route == "stopwatch") {
+                display->SetupStopwatchScreen();
+            } else if (route == "focus") {
+                display->SetupFocusScreen();
+            }
+        });
+    });
+    TimeToolsManager::GetInstance().SetEventCallback([this](const char* message) {
+        Schedule([this, text = std::string(message)]() {
+            auto* display = dynamic_cast<LcdDisplay*>(Board::GetInstance().GetDisplay());
+            if (display != nullptr) {
+                display->ShowNotification(text.c_str(), 1600);
+            }
+            PlaySound(Lang::Sounds::OGG_POPUP);
+        });
+    });
+#endif
     // Setup the display
     auto display = board.GetDisplay();
     display->SetupUI();
-    // Print board name/version info
-    display->SetChatMessage("system", SystemInfo::GetUserAgent().c_str());
-
+#if defined(ESP32_ALARM_USE_NEW_UI) && ESP32_ALARM_USE_NEW_UI
+#endif
     // Setup the audio service
     auto codec = board.GetAudioCodec();
     audio_service_.Initialize(codec);
     audio_service_.Start();
-
     AudioServiceCallbacks callbacks;
     callbacks.on_send_queue_available = [this]() {
         xEventGroupSetBits(event_group_, MAIN_EVENT_SEND_AUDIO);
@@ -84,6 +130,7 @@ void Application::Initialize() {
         xEventGroupSetBits(event_group_, MAIN_EVENT_VAD_CHANGE);
     };
     audio_service_.SetCallbacks(callbacks);
+    board.OnAudioServiceStarted();
 
     // Add state change listeners
     state_machine_.AddStateChangeListener([this](DeviceState old_state, DeviceState new_state) {
@@ -318,6 +365,12 @@ void Application::HandleActivationDoneEvent() {
         // Play the success sound to indicate the device is ready
         audio_service_.PlaySound(Lang::Sounds::OGG_SUCCESS);
     });
+
+#if defined(ESP32_ALARM_USE_NEW_UI) && ESP32_ALARM_USE_NEW_UI
+    Schedule([]() {
+        UiRouter::GetInstance().NavigateTo(UiRouter::RouteHome);
+    });
+#endif
 }
 
 void Application::ActivationTask() {
@@ -775,6 +828,7 @@ void Application::HandleStopListeningEvent() {
 
 void Application::HandleWakeWordDetectedEvent() {
     if (!protocol_) {
+        ESP_LOGW(TAG, "HandleWakeWordDetectedEvent: protocol_ is null!");
         return;
     }
 
@@ -787,6 +841,7 @@ void Application::HandleWakeWordDetectedEvent() {
         auto wake_word = audio_service_.GetLastWakeWord();
 
         if (!protocol_->IsAudioChannelOpened()) {
+            ESP_LOGI(TAG, "HandleWakeWordDetectedEvent: scheduling ContinueWakeWordInvoke");
             SetDeviceState(kDeviceStateConnecting);
             // Schedule to let the state change be processed first (UI update),
             // then continue with OpenAudioChannel which may block for ~1 second
@@ -795,7 +850,9 @@ void Application::HandleWakeWordDetectedEvent() {
             });
             return;
         }
-        // Channel already opened, continue directly
+        // Channel already opened, need to set state to Connecting before calling ContinueWakeWordInvoke
+        ESP_LOGI(TAG, "HandleWakeWordDetectedEvent: audio channel already open, setting state to Connecting");
+        SetDeviceState(kDeviceStateConnecting);
         ContinueWakeWordInvoke(wake_word);
     } else if (state == kDeviceStateSpeaking || state == kDeviceStateListening) {
         AbortSpeaking(kAbortReasonWakeWordDetected);
@@ -821,15 +878,22 @@ void Application::HandleWakeWordDetectedEvent() {
 
 void Application::ContinueWakeWordInvoke(const std::string& wake_word) {
     // Check state again in case it was changed during scheduling
+    ESP_LOGI(TAG, "ContinueWakeWordInvoke: starting, state=%d", (int)GetDeviceState());
     if (GetDeviceState() != kDeviceStateConnecting) {
+        ESP_LOGW(TAG, "ContinueWakeWordInvoke: state changed, expected Connecting");
         return;
     }
 
     if (!protocol_->IsAudioChannelOpened()) {
+        ESP_LOGI(TAG, "ContinueWakeWordInvoke: opening audio channel...");
         if (!protocol_->OpenAudioChannel()) {
+            ESP_LOGW(TAG, "ContinueWakeWordInvoke: OpenAudioChannel failed");
             audio_service_.EnableWakeWordDetection(true);
             return;
         }
+        ESP_LOGI(TAG, "ContinueWakeWordInvoke: audio channel opened");
+    } else {
+        ESP_LOGI(TAG, "ContinueWakeWordInvoke: audio channel already open");
     }
 
     ESP_LOGI(TAG, "Wake word detected: %s", wake_word.c_str());
@@ -840,6 +904,9 @@ void Application::ContinueWakeWordInvoke(const std::string& wake_word) {
     }
     // Set the chat state to wake word detected
     protocol_->SendWakeWordDetected(wake_word);
+
+    // Set flag to play popup sound after state changes to listening
+    play_popup_on_listening_ = true;
     SetListeningMode(GetDefaultListeningMode());
 #else
     // Set flag to play popup sound after state changes to listening
@@ -950,6 +1017,27 @@ ListeningMode Application::GetDefaultListeningMode() const {
 
 void Application::Reboot() {
     ESP_LOGI(TAG, "Rebooting...");
+    auto& board = Board::GetInstance();
+
+    // If the active board is using ML307C and it is currently in low-power mode,
+    // wake it before restarting ESP32. This avoids leaving the modem in a sleep
+    // state that can cause the next boot's fixed-baud detect to time out.
+    board.SetPowerSaveLevel(PowerSaveLevel::BALANCED);
+    vTaskDelay(pdMS_TO_TICKS(300));
+
+    // For dual-network boards using ML307C, also reboot the modem itself before
+    // restarting ESP32 so SIM selection / PDP / sleep state is reset cleanly.
+    if (auto* dual_board = dynamic_cast<DualNetworkBoard*>(&board)) {
+        if (dual_board->GetNetworkType() == NetworkType::ML307) {
+            auto* ml307c_board = dynamic_cast<Ml307CBoard*>(&dual_board->GetCurrentBoard());
+            if (ml307c_board != nullptr) {
+                ESP_LOGI(TAG, "Rebooting ML307C before ESP restart...");
+                ml307c_board->RestartModem();
+                vTaskDelay(pdMS_TO_TICKS(3000));
+            }
+        }
+    }
+
     // Disconnect the audio channel
     if (protocol_ && protocol_->IsAudioChannelOpened()) {
         protocol_->CloseAudioChannel();
@@ -1015,10 +1103,13 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
 
 void Application::WakeWordInvoke(const std::string& wake_word) {
     if (!protocol_) {
+        ESP_LOGW(TAG, "WakeWordInvoke: protocol_ is null!");
         return;
     }
 
     auto state = GetDeviceState();
+    ESP_LOGI(TAG, "WakeWordInvoke: wake_word=%s, state=%d, protocol_ok=%d", 
+             wake_word.c_str(), (int)state, protocol_ ? 1 : 0);
     
     if (state == kDeviceStateIdle) {
         audio_service_.EncodeWakeWord();
@@ -1031,13 +1122,16 @@ void Application::WakeWordInvoke(const std::string& wake_word) {
             });
             return;
         }
-        // Channel already opened, continue directly
+        // Channel already opened, need to set state to Connecting first
+        SetDeviceState(kDeviceStateConnecting);
         ContinueWakeWordInvoke(wake_word);
     } else if (state == kDeviceStateSpeaking) {
+        ESP_LOGI(TAG, "WakeWordInvoke: aborting speaking");
         Schedule([this]() {
             AbortSpeaking(kAbortReasonNone);
         });
     } else if (state == kDeviceStateListening) {   
+        ESP_LOGI(TAG, "WakeWordInvoke: closing audio channel in listening state");
         Schedule([this]() {
             if (protocol_) {
                 protocol_->CloseAudioChannel();
@@ -1113,4 +1207,5 @@ void Application::ResetProtocol() {
         protocol_.reset();
     });
 }
+
 

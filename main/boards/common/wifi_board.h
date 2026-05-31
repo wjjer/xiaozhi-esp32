@@ -58,6 +58,22 @@ public:
     /**
      * Enter WiFi configuration mode (thread-safe, can be called from any task)
      */
+    
+    /**
+     * Stop WiFi connection timeout timer
+     */
+    void StopWifiConnectTimer();
+    
+    /**
+     * Stop WiFi auto reconnect
+     */
+    void StopWifiReconnect();
+    
+    /**
+     * Resume WiFi auto reconnect
+     */
+    void ResumeWifiReconnect();
+    
     void EnterWifiConfigMode();
     
     /**

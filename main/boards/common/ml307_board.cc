@@ -28,6 +28,11 @@ void Ml307Board::SetNetworkEventCallback(NetworkEventCallback callback) {
     network_event_callback_ = std::move(callback);
 }
 
+void Ml307Board::OnModemReady() {
+    // Default implementation does nothing
+    // Subclasses can override to configure modem after detection
+}
+
 void Ml307Board::OnNetworkEvent(NetworkEvent event, const std::string& data) {
     switch (event) {
         case NetworkEvent::ModemDetecting:
@@ -70,9 +75,12 @@ void Ml307Board::NetworkTask() {
 
     // Try to detect modem with retry limit
     int detect_retries = 0;
+   
     while (detect_retries < MODEM_DETECT_MAX_RETRIES) {
-        modem_ = AtModem::Detect(tx_pin_, rx_pin_, dtr_pin_, 921600);
+         modem_ = AtModem::Detect(tx_pin_, rx_pin_, dtr_pin_, 921600, 10000); // 10秒超时
+       
         if (modem_ != nullptr) {
+            ESP_LOGI(TAG, "Modem detected successfully at baud rate: %d", 921600);
             break;
         }
         detect_retries++;
@@ -87,13 +95,39 @@ void Ml307Board::NetworkTask() {
 
     ESP_LOGI(TAG, "Modem detected successfully");
 
+    // Call virtual function to allow subclasses to configure modem (e.g., dual SIM)
+    // This is called after modem is detected but before network registration
+    OnModemReady();
+
     // Set up network state change callback
     // Note: Don't call GetCarrierName() here as it sends AT command and will block ReceiveTask
     modem_->OnNetworkStateChanged([this](bool network_ready) {
         if (network_ready) {
             OnNetworkEvent(NetworkEvent::Connected);
         } else {
+            // ESP_LOGW(TAG, "Network disconnected, attempting to reconnect...");
             OnNetworkEvent(NetworkEvent::Disconnected);
+            
+            // 尝试重新连接网络
+            if (!stop_reconnect_) {
+                int reconnect_retries = 0;
+                const int max_reconnect_retries = 5;
+                while (reconnect_retries < max_reconnect_retries && !stop_reconnect_) {
+                    ESP_LOGI(TAG, "Reconnecting... attempt %d/%d", reconnect_retries + 1, max_reconnect_retries);
+                    auto result = modem_->WaitForNetworkReady(30000);
+                    if (result == NetworkStatus::Ready) {
+                        ESP_LOGI(TAG, "Reconnected successfully");
+                        OnNetworkEvent(NetworkEvent::Connected);
+                        return;
+                    }
+                    reconnect_retries++;
+                    vTaskDelay(pdMS_TO_TICKS(5000));
+                }
+                
+                if (!stop_reconnect_) {
+                    ESP_LOGE(TAG, "Reconnection failed after %d attempts", max_reconnect_retries);
+                }
+            }
         }
     });
 
@@ -102,6 +136,7 @@ void Ml307Board::NetworkTask() {
 
     // Wait for network ready with retry limit
     int reg_retries = 0;
+
     while (reg_retries < NETWORK_REG_MAX_RETRIES) {
         auto result = modem_->WaitForNetworkReady();
         if (result == NetworkStatus::Ready) {
@@ -178,9 +213,34 @@ std::string Ml307Board::GetBoardJson() {
     return board_json;
 }
 
+
 void Ml307Board::SetPowerSaveLevel(PowerSaveLevel level) {
-    // TODO: Implement power save level for ML307
-    (void)level;
+    if (modem_) {
+        switch (level) {
+            case PowerSaveLevel::LOW_POWER:
+                // ML307C 低功耗模式：使用AT命令进入深睡眠
+                // SetSleepMode 内部会：
+                // 1. 发送 AT+MLPMCFG="sleepmode",2,0 打开休眠功能
+                // 2. 延时指定时间
+                // 3. 拉高DTR引脚进入深睡眠
+                ESP_LOGI(TAG, "Setting ML307C to LOW_POWER mode...");
+                modem_->SetSleepMode(true, 1);  // 1秒后进入深睡眠
+                ESP_LOGI(TAG, "Set power save level to LOW_POWER");
+                break;
+            case PowerSaveLevel::BALANCED:
+                // 平衡模式：唤醒模组，保持正常运行
+                ESP_LOGI(TAG, "Setting ML307C to BALANCED mode...");
+                modem_->SetSleepMode(false, 0);  // 唤醒模组
+                ESP_LOGI(TAG, "Set power save level to BALANCED");
+                break;
+            case PowerSaveLevel::PERFORMANCE:
+                // 性能模式：禁用深睡眠，保持唤醒
+                ESP_LOGI(TAG, "Setting ML307C to PERFORMANCE mode...");
+                modem_->SetSleepMode(false, 0);  // 唤醒并禁用休眠
+                ESP_LOGI(TAG, "Set power save level to PERFORMANCE");
+                break;
+        }
+    }
 }
 
 std::string Ml307Board::GetDeviceStatusJson() {
@@ -267,4 +327,14 @@ std::string Ml307Board::GetDeviceStatusJson() {
     cJSON_free(json_str);
     cJSON_Delete(root);
     return json;
+}
+
+void Ml307Board::StopNetworkReconnect() {
+    stop_reconnect_ = true;
+    ESP_LOGI(TAG, "Network reconnect stopped");
+}
+
+void Ml307Board::ResumeNetworkReconnect() {
+    stop_reconnect_ = false;
+    ESP_LOGI(TAG, "Network reconnect resumed");
 }

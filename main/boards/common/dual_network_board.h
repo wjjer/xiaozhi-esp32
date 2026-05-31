@@ -4,6 +4,7 @@
 #include "board.h"
 #include "wifi_board.h"
 #include "ml307_board.h"
+#include "ml307c_board.h"
 #include <memory>
 
 //enum NetworkType
@@ -23,6 +24,7 @@ private:
     gpio_num_t ml307_tx_pin_;
     gpio_num_t ml307_rx_pin_;
     gpio_num_t ml307_dtr_pin_;
+    bool use_ml307c_;
     
     // 从Settings加载网络类型
     NetworkType LoadNetworkTypeFromSettings(int32_t default_net_type);
@@ -34,7 +36,7 @@ private:
     void InitializeCurrentBoard();
  
 public:
-    DualNetworkBoard(gpio_num_t ml307_tx_pin, gpio_num_t ml307_rx_pin, gpio_num_t ml307_dtr_pin = GPIO_NUM_NC, int32_t default_net_type = 1);
+    DualNetworkBoard(gpio_num_t ml307_tx_pin, gpio_num_t ml307_rx_pin, gpio_num_t ml307_dtr_pin = GPIO_NUM_NC, int32_t default_net_type = 1, bool use_ml307c = false);
     virtual ~DualNetworkBoard() = default;
  
     // 切换网络类型
@@ -55,6 +57,21 @@ public:
     virtual void SetPowerSaveLevel(PowerSaveLevel level) override;
     virtual std::string GetBoardJson() override;
     virtual std::string GetDeviceStatusJson() override;
+    
+    /**
+     * Stop WiFi connection timeout timer if current board is WifiBoard
+     */
+    void StopWifiConnectTimer();
+    
+    /**
+     * Stop network reconnect attempts
+     */
+    void StopNetworkReconnect();
+    
+    /**
+     * Resume network reconnect attempts
+     */
+    void ResumeNetworkReconnect();
 };
 
 #endif // DUAL_NETWORK_BOARD_H 
