@@ -17,13 +17,13 @@
 #include <esp_lcd_panel_io.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_vendor.h>
-#include <esp_lcd_touch.h>
-#include <esp_lcd_touch_cst328.h>
 #include <esp_log.h>
+#include <esp_timer.h>
 #include <driver/gpio.h>
 #include <ctime>
 #include <cstdlib>
 #include <cJSON.h>
+#include "esp_lcd_touch_cst226se.h"
 
 static const char* TAG = "Esp32AlarmBoard";
 
@@ -107,58 +107,33 @@ private:
             DISPLAY_SWAP_XY);
     }
 
-    static void TouchCoordsAdjust(esp_lcd_touch_handle_t, uint16_t* x, uint16_t* y, uint16_t*, uint8_t* point_num, uint8_t max_point_num) {
-        for (int i = 0; i < *point_num && i < max_point_num; ++i) {
-            uint16_t raw_x = x[i];
-            uint16_t raw_y = y[i];
-            uint32_t calc_x = ((uint32_t)raw_y * DISPLAY_WIDTH) / 320;
-            uint32_t calc_y = ((uint32_t)raw_x * DISPLAY_HEIGHT) / 240;
-            if (calc_x >= DISPLAY_WIDTH) {
-                calc_x = DISPLAY_WIDTH - 1;
-            }
-            if (calc_y >= DISPLAY_HEIGHT) {
-                calc_y = DISPLAY_HEIGHT - 1;
-            }
-            x[i] = static_cast<uint16_t>(calc_x);
-            y[i] = static_cast<uint16_t>(calc_y);
-        }
-    }
-
     void InitializeTouch() {
         if (codec_i2c_bus_ == nullptr) {
             ESP_LOGW(TAG, "Touch skipped: I2C bus not ready");
             return;
         }
-
-        esp_lcd_panel_io_handle_t tp_io_handle = nullptr;
-        esp_lcd_panel_io_i2c_config_t tp_io_config = ESP_LCD_TOUCH_IO_I2C_CST328_CONFIG();
-        tp_io_config.scl_speed_hz = 400000;
-        ESP_ERROR_CHECK(esp_lcd_new_panel_io_i2c(codec_i2c_bus_, &tp_io_config, &tp_io_handle));
-
-        esp_lcd_touch_config_t tp_cfg = {
-            .x_max = DISPLAY_WIDTH,
-            .y_max = DISPLAY_HEIGHT,
+        esp_lcd_touch_cst226se_config_t touch_cfg = {
+            .i2c_bus = codec_i2c_bus_,
+            .i2c_addr = 0x5A,
             .rst_gpio_num = TOUCH_RST_PIN,
             .int_gpio_num = TOUCH_INT_PIN,
-            .levels = {
-                .reset = 1,
-                .interrupt = 0,
-            },
-            .flags = {
-                .swap_xy = 0,
-                .mirror_x = 0,
-                .mirror_y = 1,
-            },
-            .process_coordinates = TouchCoordsAdjust,
+            .x_max = DISPLAY_WIDTH,
+            .y_max = DISPLAY_HEIGHT,
+            .raw_min_x = TOUCH_RAW_MIN_X,
+            .raw_min_y = TOUCH_RAW_MIN_Y,
+            .raw_max_x = TOUCH_RAW_MAX_X,
+            .raw_max_y = TOUCH_RAW_MAX_Y,
+            .offset_x = TOUCH_OFFSET_X,
+            .offset_y = TOUCH_OFFSET_Y,
+            .swap_xy = false,
+            .mirror_x = TOUCH_MIRROR_X,
+            .mirror_y = TOUCH_MIRROR_Y,
         };
-
-        ESP_ERROR_CHECK(esp_lcd_touch_new_i2c_cst328(tp_io_handle, &tp_cfg, &touch_handle_));
-
-        if (auto* lcd_display = dynamic_cast<LcdDisplay*>(display_)) {
-            lcd_display->AttachTouchHandle(touch_handle_);
+        ESP_ERROR_CHECK(esp_lcd_touch_new_i2c_cst226se(&touch_cfg, &touch_handle_));
+        ESP_LOGI(TAG, "Touch (CST226SE) initialized");
+        if (display_ != nullptr) {
+            display_->AttachTouchHandle(touch_handle_);
         }
-
-        ESP_LOGI(TAG, "Touch (CST328) is attached to LVGL");
     }
 
     void InitializeBacklight() {
@@ -357,6 +332,7 @@ public:
 #endif
         if (touch_handle_ != nullptr) {
             esp_lcd_touch_del(touch_handle_);
+            touch_handle_ = nullptr;
         }
         if (codec_i2c_bus_ != nullptr) {
             i2c_del_master_bus(codec_i2c_bus_);

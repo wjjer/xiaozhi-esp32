@@ -2,7 +2,6 @@
 #define ML307C_BOARD_H
 
 #include "ml307_board.h"
-#include "at_command_tester.h"
 #include <memory>
 #include <at_modem.h>
 
@@ -19,9 +18,6 @@ protected:
 public:
     Ml307CBoard(gpio_num_t tx_pin, gpio_num_t rx_pin, gpio_num_t dtr_pin = GPIO_NUM_NC);
     virtual ~Ml307CBoard();
-
-    // AT命令测试
-    void TestAtCommands(const std::string& category = "all");
 
     // 软SIM卡切换
     bool SwitchSoftSimSlot(int target_slot);

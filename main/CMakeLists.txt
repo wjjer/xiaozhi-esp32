@@ -52,7 +52,6 @@ list(APPEND SOURCES
     "boards/common/wifi_board.cc"
     "boards/common/ml307_board.cc"
     "boards/common/ml307c_board.cc"
-    "boards/common/at_command_tester.cc"
     "boards/common/nt26_board.cc"
     "boards/common/dual_network_board.cc"
     "boards/common/adc_battery_monitor.cc"
@@ -179,6 +178,7 @@ elseif(CONFIG_BOARD_TYPE_ESP32_ALARM)
         ${CMAKE_CURRENT_SOURCE_DIR}/boards/esp32-alarm/ui_generated/*.cpp
     )
     list(APPEND SOURCES
+        "boards/esp32-alarm/esp_lcd_touch_cst226se/esp_lcd_touch_cst226se.cc"
         "boards/esp32-alarm/ui_designer/alarm/custom/custom.c"
         "ui/ui_system.cc"
         "ui/ui_router.cc"
@@ -186,6 +186,7 @@ elseif(CONFIG_BOARD_TYPE_ESP32_ALARM)
     )
     list(APPEND INCLUDE_DIRS "ui")
     list(APPEND INCLUDE_DIRS
+        ${CMAKE_CURRENT_SOURCE_DIR}/boards/esp32-alarm/esp_lcd_touch_cst226se
         ${CMAKE_CURRENT_SOURCE_DIR}/boards/esp32-alarm/ui_designer/alarm/custom
         ${CMAKE_CURRENT_SOURCE_DIR}/boards/esp32-alarm/ui_generated
     )

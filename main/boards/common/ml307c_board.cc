@@ -179,12 +179,6 @@ void Ml307CBoard::OnModemReady() {
     xTaskCreate(AutoModeTaskEntry, "auto_mode_task", 4096, this, 4, &auto_mode_task_handle_);
 #endif
 
-
-//     // todo:AT命令测试
-//     ESP_LOGI(TAG, "AT test mode enabled, category: %s", "all");
-//     vTaskDelay(pdMS_TO_TICKS(2000));  // 等待模组完全就绪
-//     TestAtCommands();
-
 }
 
 // Maximum retry count for modem detection
@@ -559,54 +553,6 @@ std::string Ml307CBoard::GetDeviceStatusJson() {
     cJSON_free(json_str);
     cJSON_Delete(root);
     return json;
-}
-
-void Ml307CBoard::TestAtCommands(const std::string& category) {
-    if (!modem_) {
-        ESP_LOGE(TAG, "Modem未初始化，无法测试AT命令");
-        return;
-    }
-
-    auto uart = modem_->GetAtUart();
-    if (!uart) {
-        ESP_LOGE(TAG, "AT UART不可用");
-        return;
-    }
-
-    ESP_LOGI(TAG, "========== 开始AT命令测试 ==========");
-    ESP_LOGI(TAG, "测试分类: %s", category.c_str());
-
-    AtCommandTester tester(uart);
-
-    if (category == "all") {
-        tester.TestAllCommands();
-    } else if (category == "basic") {
-        tester.TestBasicCommands();
-    } else if (category == "sim") {
-        tester.TestSimCommands();
-    } else if (category == "network") {
-        tester.TestNetworkCommands();
-    } else if (category == "dialup") {
-        tester.TestDialupCommands();
-    } else if (category == "tcpip") {
-        tester.TestTcpIpCommands();
-    } else if (category == "mqtt") {
-        tester.TestMqttCommands();
-    } else if (category == "http") {
-        tester.TestHttpCommands();
-    } else if (category == "hardware") {
-        tester.TestHardwareCommands();
-    } else if (category == "lowpower") {
-        tester.TestLowPowerCommands();
-    } else if (category == "power") {
-        tester.TestPowerCommands();
-    } else {
-        // 尝试作为单个命令执行
-        ESP_LOGI(TAG, "执行单个命令: %s", category.c_str());
-        tester.TestCommand(category, "用户指定命令", 3000);
-    }
-
-    ESP_LOGI(TAG, "测试完成!");
 }
 
 void Ml307CBoard::AutoModeTaskEntry(void* arg) {

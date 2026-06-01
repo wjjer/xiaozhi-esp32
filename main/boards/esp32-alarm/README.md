@@ -13,7 +13,7 @@
 | UI 方案 | GUI Guider 生成 `ui_generated/`，`main/ui/` 只保留路由与状态层 |
 | 运行时图片 | 继续使用 `assets/runtime/` 下的 PNG |
 | 屏幕 | SPI，`320x240` |
-| 触摸 | I2C 触摸，当前代码对接 `CST328`，`INT GPIO4` |
+| 触摸 | I2C 触摸，当前硬件为 `CST226SE`，`INT GPIO4` |
 
 ## UI 文档入口
 
@@ -34,7 +34,7 @@
 | 音频 Codec | `I2C SDA GPIO1` `I2C SCL GPIO2` `ES8311` `PA_EN GPIO6` |
 | 显示 | `ST7789V`，`SCLK GPIO39` `MOSI GPIO40` `DC GPIO41` `CS GPIO42` `RST GPIO38` `BL GPIO21` |
 | 显示参数 | `320x240`，`swap_xy=true`，`mirror_x=true`，`mirror_y=false`，`spi_mode=0` |
-| 触摸 | `CST328`，`SDA/SCL GPIO1/GPIO2`，`RST GPIO8` |
+| 触摸 | `CST226SE`，`SDA/SCL GPIO1/GPIO2`，`RST GPIO8` |
 | 4G | `ML307C_TX GPIO43`，`ML307C_RX GPIO44`，`DTR NC` |
 | 按键 | `KEY_AI GPIO0`，`KEY_BACK GPIO20`，`KEY_UP GPIO21` |
 | 蓝牙串口 | `BL_TX GPIO17`，`BL_RX GPIO18` |
